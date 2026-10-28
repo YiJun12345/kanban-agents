@@ -1,0 +1,47 @@
+.column.over {
+  background: #dfe1e6;
+  outline: 2px dashed #4c9aff;
+}
+
+.card {
+  cursor: grab;
+  touch-action: none;
+}
+
+.card.dragging {
+  cursor: grabbing;
+  opacity: 0.8;
+  position: relative;
+  z-index: 10;
+}
+
+.new-task {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.new-task input {
+  padding: 6px 8px;
+  border: 1px solid #c1c7d0;
+  border-radius: 4px;
+  min-width: 200px;
+}
+
+.new-task button {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 4px;
+  background: #0052cc;
+  color: white;
+  cursor: pointer;
+}
+
+.new-task button:disabled {
+  opacity: 0.6;
+}
+
+.error {
+  color: #de350b;
+}
