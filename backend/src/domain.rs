@@ -47,6 +47,7 @@ pub struct Project {
 }
 
 #[derive(SimpleObject, sqlx::FromRow, Clone, Debug)]
+#[graphql(complex)] // adds Task.logs in graphql.rs
 pub struct Task {
     pub id: Uuid,
     pub project_id: Uuid,
@@ -56,6 +57,14 @@ pub struct Task {
     pub agent: AgentKind,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(SimpleObject, sqlx::FromRow, Clone, Debug)]
+pub struct LogLine {
+    pub run_id: Uuid,
+    pub seq: i32,
+    pub content: String,
+    pub created_at: DateTime<Utc>,
 }
 
 

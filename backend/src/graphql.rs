@@ -1,16 +1,23 @@
-use async_graphql::{ComplexObject, Context, EmptySubscription, Object, Result, Schema};
+use async_graphql::{ComplexObject, Context, Object, Result, Schema, Subscription};
 use sqlx::PgPool;
+use tokio_stream::wrappers::BroadcastStream;
+use tokio_stream::{Stream, StreamExt};
 use uuid::Uuid;
 
-use crate::domain::{AgentKind, Project, Task, TaskStatus};
+use crate::agent;
+use crate::domain::{AgentKind, LogLine, Project, Task, TaskStatus};
+use crate::events::{BoardEvent, Events};
+use crate::tasks;
 
-pub type AppSchema = Schema<QueryRoot, MutationRoot, EmptySubscription>;
+pub type AppSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
 
-pub fn build_schema(pool: PgPool) -> AppSchema {
-    Schema::build(QueryRoot, MutationRoot, EmptySubscription)
+pub fn build_schema(pool: PgPool, events: Events) -> AppSchema {
+    Schema::build(QueryRoot, MutationRoot, SubscriptionRoot)
         .data(pool)
+        .data(events)
         .finish()
 }
+
 
 pub struct QueryRoot;
 
@@ -40,6 +47,23 @@ impl Project {
         let pool = ctx.data::<PgPool>()?;
         let rows = sqlx::query_as::<_, Task>(
             "SELECT * FROM tasks WHERE project_id = $1 ORDER BY created_at",
+        )
+        .bind(self.id)
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+}
+
+#[ComplexObject]
+impl Task {
+    /// Output of the most recent agent run
+    async fn logs(&self, ctx: &Context<'_>) -> Result<Vec<LogLine>> {
+        let pool = ctx.data::<PgPool>()?;
+        let rows = sqlx::query_as::<_, LogLine>(
+            "SELECT * FROM run_logs
+             WHERE run_id = (SELECT id FROM runs WHERE task_id = $1 ORDER BY started_at DESC LIMIT 1)
+             ORDER BY seq",
         )
         .bind(self.id)
         .fetch_all(pool)
@@ -88,34 +112,54 @@ impl MutationRoot {
         .bind(agent.unwrap_or(AgentKind::Fake))
         .fetch_one(pool)
         .await?;
+
+        let _ = ctx.data::<Events>()?.send(BoardEvent::TaskUpdated(row.clone()));
         Ok(row)
     }
 
+
     async fn move_task(&self, ctx: &Context<'_>, id: Uuid, status: TaskStatus) -> Result<Task> {
         let pool = ctx.data::<PgPool>()?;
-        let mut tx = pool.begin().await?;
+        let events = ctx.data::<Events>()?;
 
-        // Lock the row so two requests can't move the same task at once
-        let current: TaskStatus =
-            sqlx::query_scalar("SELECT status FROM tasks WHERE id = $1 FOR UPDATE")
-                .bind(id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .ok_or("task not found")?;
+        let task = tasks::transition(pool, id, status).await?;
+        let _ = events.send(BoardEvent::TaskUpdated(task.clone()));
 
-        if !current.can_move_to(status) {
-            return Err(format!("cannot move task from {current:?} to {status:?}").into());
+        // Moving a card into In Progress starts an agent on it
+        if task.status == TaskStatus::InProgress {
+            agent::spawn(pool.clone(), events.clone(), task.clone());
         }
-
-        let task = sqlx::query_as::<_, Task>(
-            "UPDATE tasks SET status = $2, updated_at = now() WHERE id = $1 RETURNING *",
-        )
-        .bind(id)
-        .bind(status)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
         Ok(task)
+    }
+}
+
+pub struct SubscriptionRoot;
+
+#[Subscription]
+impl SubscriptionRoot {
+    /// Fires whenever a task in this project is created or changes status
+    async fn task_updated(
+        &self,
+        ctx: &Context<'_>,
+        project_id: Uuid,
+    ) -> Result<impl Stream<Item = Task>> {
+        let rx = ctx.data::<Events>()?.subscribe();
+        Ok(BroadcastStream::new(rx).filter_map(move |event| match event {
+            Ok(BoardEvent::TaskUpdated(task)) if task.project_id == project_id => Some(task),
+            _ => None,
+        }))
+    }
+
+    /// Live agent output for one task
+    async fn task_logs(
+        &self,
+        ctx: &Context<'_>,
+        task_id: Uuid,
+    ) -> Result<impl Stream<Item = LogLine>> {
+        let rx = ctx.data::<Events>()?.subscribe();
+        Ok(BroadcastStream::new(rx).filter_map(move |event| match event {
+            Ok(BoardEvent::Log { task_id: id, line }) if id == task_id => Some(line),
+            _ => None,
+        }))
     }
 }
