@@ -6,6 +6,6 @@ export default defineConfig({
   plugins: [react()],
   server: {
     // Forward /graphql to the Rust backend so the browser sees one origin (no CORS)
-    proxy: { '/graphql': 'http://localhost:3000' },
+    proxy: { '/graphql': { target: 'http://localhost:3000', ws: true } },
   },
 })

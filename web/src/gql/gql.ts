@@ -16,11 +16,17 @@ import type { TypedDocumentNode as DocumentNode } from '@graphql-typed-document-
 type Documents = {
     "\n  query Board {\n    projects {\n      id\n      name\n      tasks {\n        id\n        title\n        status\n        agent\n      }\n    }\n  }\n": typeof types.BoardDocument,
     "\n  mutation MoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n": typeof types.MoveTaskDocument,
+    "\n  subscription TaskUpdated($projectId: UUID!) {\n    taskUpdated(projectId: $projectId) {\n      id\n    }\n  }\n": typeof types.TaskUpdatedDocument,
+    "\n  query TaskLogs($id: UUID!) {\n    task(id: $id) {\n      id\n      title\n      status\n      prompt\n      logs {\n        runId\n        seq\n        content\n      }\n    }\n  }\n": typeof types.TaskLogsDocument,
+    "\n  subscription TaskLogsLive($taskId: UUID!) {\n    taskLogs(taskId: $taskId) {\n      runId\n      seq\n      content\n    }\n  }\n": typeof types.TaskLogsLiveDocument,
     "\n  mutation CreateTask($projectId: UUID!, $title: String!, $prompt: String!) {\n    createTask(projectId: $projectId, title: $title, prompt: $prompt) {\n      id\n    }\n  }\n": typeof types.CreateTaskDocument,
 };
 const documents: Documents = {
     "\n  query Board {\n    projects {\n      id\n      name\n      tasks {\n        id\n        title\n        status\n        agent\n      }\n    }\n  }\n": types.BoardDocument,
     "\n  mutation MoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n": types.MoveTaskDocument,
+    "\n  subscription TaskUpdated($projectId: UUID!) {\n    taskUpdated(projectId: $projectId) {\n      id\n    }\n  }\n": types.TaskUpdatedDocument,
+    "\n  query TaskLogs($id: UUID!) {\n    task(id: $id) {\n      id\n      title\n      status\n      prompt\n      logs {\n        runId\n        seq\n        content\n      }\n    }\n  }\n": types.TaskLogsDocument,
+    "\n  subscription TaskLogsLive($taskId: UUID!) {\n    taskLogs(taskId: $taskId) {\n      runId\n      seq\n      content\n    }\n  }\n": types.TaskLogsLiveDocument,
     "\n  mutation CreateTask($projectId: UUID!, $title: String!, $prompt: String!) {\n    createTask(projectId: $projectId, title: $title, prompt: $prompt) {\n      id\n    }\n  }\n": types.CreateTaskDocument,
 };
 
@@ -46,6 +52,18 @@ export function graphql(source: "\n  query Board {\n    projects {\n      id\n  
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  mutation MoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n"): (typeof documents)["\n  mutation MoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  subscription TaskUpdated($projectId: UUID!) {\n    taskUpdated(projectId: $projectId) {\n      id\n    }\n  }\n"): (typeof documents)["\n  subscription TaskUpdated($projectId: UUID!) {\n    taskUpdated(projectId: $projectId) {\n      id\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  query TaskLogs($id: UUID!) {\n    task(id: $id) {\n      id\n      title\n      status\n      prompt\n      logs {\n        runId\n        seq\n        content\n      }\n    }\n  }\n"): (typeof documents)["\n  query TaskLogs($id: UUID!) {\n    task(id: $id) {\n      id\n      title\n      status\n      prompt\n      logs {\n        runId\n        seq\n        content\n      }\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  subscription TaskLogsLive($taskId: UUID!) {\n    taskLogs(taskId: $taskId) {\n      runId\n      seq\n      content\n    }\n  }\n"): (typeof documents)["\n  subscription TaskLogsLive($taskId: UUID!) {\n    taskLogs(taskId: $taskId) {\n      runId\n      seq\n      content\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

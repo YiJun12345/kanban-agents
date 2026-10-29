@@ -1,3 +1,46 @@
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #f4f5f7;
+  color: #172b4d;
+}
+
+main {
+  padding: 16px;
+}
+
+.board {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  overflow-x: auto;
+}
+
+.column {
+  flex: 0 0 240px;
+  background: #ebecf0;
+  border-radius: 8px;
+  padding: 8px;
+  min-height: 200px;
+}
+
+.column h2 {
+  font-size: 14px;
+  margin: 4px 4px 8px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: white;
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 8px;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.15);
+}
+
+
 .column.over {
   background: #dfe1e6;
   outline: 2px dashed #4c9aff;
@@ -44,4 +87,67 @@
 
 .error {
   color: #de350b;
+}
+
+.layout {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.layout .board {
+  flex: 1;
+  min-width: 0;
+}
+
+.card.selected {
+  outline: 2px solid #0052cc;
+}
+
+.log-panel {
+  flex: 0 0 360px;
+  background: white;
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.2);
+}
+
+.log-panel header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.log-panel h2 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.log-panel header button {
+  border: 0;
+  background: none;
+  font-size: 16px;
+  cursor: pointer;
+}
+
+.log-panel .status {
+  font-size: 12px;
+  font-weight: bold;
+  color: #5e6c84;
+}
+
+.log-panel .prompt {
+  font-style: italic;
+}
+
+.log-panel pre {
+  background: #172b4d;
+  color: #e6edf3;
+  padding: 8px;
+  border-radius: 4px;
+  min-height: 160px;
+  max-height: 400px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 12px;
 }

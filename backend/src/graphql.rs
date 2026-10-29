@@ -31,6 +31,16 @@ impl QueryRoot {
         Ok(rows)
     }
 
+    async fn task(&self, ctx: &Context<'_>, id: Uuid) -> Result<Option<Task>> {
+        let pool = ctx.data::<PgPool>()?;
+        let row = sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = $1")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+        Ok(row)
+    }
+
+
     async fn project(&self, ctx: &Context<'_>, id: Uuid) -> Result<Option<Project>> {
         let pool = ctx.data::<PgPool>()?;
         let row = sqlx::query_as::<_, Project>("SELECT * FROM projects WHERE id = $1")

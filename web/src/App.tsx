@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react'
 import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
-import { useMutation, useQuery } from 'urql'
+import { useMutation, useQuery, useSubscription } from 'urql'
 import { Column } from './components/Column'
+import { LogPanel } from './components/LogPanel'
 import { NewTaskForm } from './components/NewTaskForm'
 import { TaskCard } from './components/TaskCard'
 import { graphql } from './gql'
@@ -31,6 +32,15 @@ const MoveTaskMutation = graphql(`
   }
 `)
 
+const TaskUpdatedSubscription = graphql(`
+  subscription TaskUpdated($projectId: UUID!) {
+    taskUpdated(projectId: $projectId) {
+      id
+    }
+  }
+`)
+
+
 const COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: 'TODO', label: 'To Do' },
   { status: 'IN_PROGRESS', label: 'In Progress' },
@@ -45,6 +55,18 @@ export default function App() {
   const [{ data, fetching, error }] = useQuery({ query: BoardQuery, context })
   const [, moveTask] = useMutation(MoveTaskMutation)
   const [moveError, setMoveError] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  // Live updates: whenever a task changes on the server, refetch the board.
+  // additionalTypenames tells urql's cache "this event affects Task data".
+  const projectId = data?.projects[0]?.id
+  useSubscription({
+    query: TaskUpdatedSubscription,
+    variables: { projectId: projectId ?? '' },
+    pause: !projectId, // wait until we know which project to watch
+    context,
+  })
+
 
   // Only start a drag after the pointer moves 5px, so a plain click isn't a drag
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
@@ -72,19 +94,31 @@ export default function App() {
       <NewTaskForm projectId={project.id} />
       {moveError && <p className="error">{moveError}</p>}
 
-      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-        <div className="board">
-          {COLUMNS.map((col) => (
-            <Column key={col.status} status={col.status} label={col.label}>
-              {project.tasks
-                .filter((t) => t.status === col.status)
-                .map((t) => (
-                  <TaskCard key={t.id} id={t.id} title={t.title} agent={t.agent} />
-                ))}
-            </Column>
-          ))}
-        </div>
-      </DndContext>
+      <div className="layout">
+        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+          <div className="board">
+            {COLUMNS.map((col) => (
+              <Column key={col.status} status={col.status} label={col.label}>
+                {project.tasks
+                  .filter((t) => t.status === col.status)
+                  .map((t) => (
+                    <TaskCard
+                      key={t.id}
+                      id={t.id}
+                      title={t.title}
+                      agent={t.agent}
+                      selected={t.id === selectedId}
+                      onSelect={setSelectedId}
+                    />
+                  ))}
+              </Column>
+            ))}
+          </div>
+        </DndContext>
+
+        {selectedId && <LogPanel taskId={selectedId} onClose={() => setSelectedId(null)} />}
+      </div>
+
     </main>
   )
 }
