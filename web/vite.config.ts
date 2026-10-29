@@ -6,6 +6,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     // Forward /graphql to the Rust backend so the browser sees one origin (no CORS)
-    proxy: { '/graphql': { target: 'http://localhost:3000', ws: true } },
+    // BACKEND_URL lets the e2e tests point at their own backend
+    proxy: {
+      '/graphql': { target: process.env.BACKEND_URL ?? 'http://localhost:3000', ws: true },
+    },
   },
 })

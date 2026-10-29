@@ -151,3 +151,27 @@ main {
   white-space: pre-wrap;
   font-size: 12px;
 }
+
+.log-panel h3 {
+  font-size: 14px;
+  margin: 12px 0 4px;
+}
+
+.log-panel pre.diff {
+  background: #f6f8fa;
+  color: #172b4d;
+}
+
+.diff .add {
+  color: #1a7f37;
+  background: #dafbe1;
+}
+
+.diff .del {
+  color: #cf222e;
+  background: #ffebe9;
+}
+
+.diff .hunk {
+  color: #8250df;
+}

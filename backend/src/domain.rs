@@ -55,6 +55,8 @@ pub struct Task {
     pub prompt: String,
     pub status: TaskStatus,
     pub agent: AgentKind,
+    pub branch: Option<String>,
+    pub worktree_path: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -67,16 +69,45 @@ pub struct LogLine {
     pub created_at: DateTime<Utc>,
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::TaskStatus::*;
+    use super::TaskStatus::{self, *};
+
+    const ALL: [TaskStatus; 5] = [Todo, InProgress, InReview, Done, Failed];
 
     #[test]
     fn allowed_and_forbidden_moves() {
         assert!(Todo.can_move_to(InProgress));
         assert!(InReview.can_move_to(Done));
-        assert!(!Todo.can_move_to(Done));   // can't skip the agent
-        assert!(!Done.can_move_to(Todo));   // done is final
+        assert!(!Todo.can_move_to(Done)); // can't skip the agent
+        assert!(!Done.can_move_to(Todo)); // done is final
+    }
+
+    /// Check every (from, to) pair, so adding a rule by accident fails this test
+    #[test]
+    fn exactly_these_moves_are_allowed() {
+        let allowed = [
+            (Todo, InProgress),
+            (InProgress, InReview),
+            (InProgress, Failed),
+            (InProgress, Todo),
+            (InReview, Done),
+            (InReview, InProgress),
+            (Failed, Todo),
+        ];
+        for from in ALL {
+            for to in ALL {
+                assert_eq!(
+                    from.can_move_to(to),
+                    allowed.contains(&(from, to)),
+                    "{from:?} -> {to:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn done_is_final() {
+        assert!(ALL.iter().all(|&to| !Done.can_move_to(to)));
     }
 }

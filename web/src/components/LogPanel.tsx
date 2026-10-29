@@ -9,6 +9,7 @@ const TaskLogsQuery = graphql(`
       title
       status
       prompt
+      diff
       logs {
         runId
         seq
@@ -28,6 +29,23 @@ const TaskLogsSubscription = graphql(`
   }
 `)
 
+// Colour each line of a unified diff: + added, - removed, @@ position markers
+function DiffView({ diff }: { diff: string }) {
+    return (
+      <pre className="diff">
+        {diff.split('\n').map((line, i) => {
+          const kind = line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('@@') ? 'hunk' : ''
+          return (
+            <span key={i} className={kind}>
+              {line}
+              {'\n'}
+            </span>
+          )
+        })}
+      </pre>
+    )
+  }
+  
 type Line = { runId: string; seq: number; content: string }
 
 export function LogPanel({ taskId, onClose }: { taskId: string; onClose: () => void }) {
@@ -68,6 +86,14 @@ export function LogPanel({ taskId, onClose }: { taskId: string; onClose: () => v
           ? 'No agent output yet. Drag the card to In Progress to start.'
           : lines.map((l) => l.content).join('\n')}
       </pre>
-    </aside>
+
+        {task.diff && (
+        <>
+            <h3>Changes</h3>
+            <DiffView diff={task.diff} />
+        </>
+        )}
+        </aside>
+
   )
 }

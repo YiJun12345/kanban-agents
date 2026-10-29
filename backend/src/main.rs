@@ -1,6 +1,7 @@
 mod agent;
 mod domain;
 mod events;
+mod git;
 mod graphql;
 mod tasks;
 
@@ -35,8 +36,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/graphql", get(graphiql).post_service(GraphQL::new(schema.clone())))
         .route_service("/graphql/ws", GraphQLSubscription::new(schema));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
-    println!("GraphiQL at http://localhost:3000/graphql");
+    // PORT lets the e2e tests run a second backend next to your dev one
+    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".into());
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
+    println!("GraphiQL at http://localhost:{port}/graphql");
     axum::serve(listener, app).await?;
     Ok(())
 }
