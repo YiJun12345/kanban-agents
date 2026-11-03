@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useQuery, useSubscription } from 'urql'
 import { graphql } from '../gql'
+import { timeAgo } from '../time'
 
 const TaskLogsQuery = graphql(`
   query TaskLogs($id: UUID!) {
@@ -9,6 +10,9 @@ const TaskLogsQuery = graphql(`
       title
       status
       prompt
+      agent
+      branch
+      updatedAt
       diff
       logs {
         runId
@@ -87,30 +91,53 @@ export function LogPanel({ taskId, onClose }: { taskId: string; onClose: () => v
   const bySeq = new Map(all.filter((l) => l.runId === latestRun).map((l) => [l.seq, l]))
   const lines = [...bySeq.values()].sort((a, b) => a.seq - b.seq)
 
+  const filesChanged = task.diff?.match(/^diff --git/gm)?.length ?? 0
+
   return (
     <aside className="log-panel">
       <header>
         <div>
+          <h2>{task.title}</h2>
           <span className="status-badge" data-status={task.status}>
             {STATUS_LABEL[task.status]}
           </span>
-          <h2>{task.title}</h2>
         </div>
         <button onClick={onClose} aria-label="Close">
           ✕
         </button>
       </header>
 
-      {task.prompt && (
+      <dl className="details">
+        <dt>Assignee</dt>
+        <dd className="assignee">
+          <span className="avatar">AI</span> {task.agent.toLowerCase()} agent
+        </dd>
+        <dt>Branch</dt>
+        <dd>{task.branch ? <code>{task.branch}</code> : 'not started'}</dd>
+        <dt>Updated</dt>
+        <dd>{timeAgo(task.updatedAt)}</dd>
+      </dl>
+
+      <section>
+        <h3>Description</h3>
+        <p className="description">{task.prompt || 'No description.'}</p>
+      </section>
+
+      {task.diff && (
         <section>
-          <h3>Prompt</h3>
-          <p className="prompt">{task.prompt}</p>
+          <h3>
+            Changes
+            <span className="aside">
+              {filesChanged} file{filesChanged === 1 ? '' : 's'}
+            </span>
+          </h3>
+          <DiffView diff={task.diff} />
         </section>
       )}
 
       <section>
         <h3>
-          Agent output
+          Activity
           {task.status === 'IN_PROGRESS' && (
             <span className="live">
               <span className="pulse" /> live
@@ -119,17 +146,10 @@ export function LogPanel({ taskId, onClose }: { taskId: string; onClose: () => v
         </h3>
         <pre className="terminal">
           {lines.length === 0
-            ? 'No agent output yet. Drag the card to In Progress to start.'
+            ? 'No activity yet. Drag the card to In Progress to start the agent.'
             : lines.map((l) => l.content).join('\n')}
         </pre>
       </section>
-
-      {task.diff && (
-        <section>
-          <h3>Changes</h3>
-          <DiffView diff={task.diff} />
-        </section>
-      )}
     </aside>
   )
 }

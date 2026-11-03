@@ -12,17 +12,18 @@ const CreateTaskMutation = graphql(`
 
 export function NewTaskForm({ projectId }: { projectId: string }) {
   const [title, setTitle] = useState('')
-  const [prompt, setPrompt] = useState('')
+  const [description, setDescription] = useState('')
   const [result, createTask] = useMutation(CreateTaskMutation)
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault() // stop the browser from reloading the page
     if (!title.trim()) return
 
-    const res = await createTask({ projectId, title, prompt })
+    // The API calls it prompt: the description is what the agent reads
+    const res = await createTask({ projectId, title, prompt: description })
     if (!res.error) {
       setTitle('')
-      setPrompt('')
+      setDescription('')
     }
   }
 
@@ -30,10 +31,10 @@ export function NewTaskForm({ projectId }: { projectId: string }) {
     <form className="new-task" onSubmit={handleSubmit}>
       <input placeholder="Task title" value={title} onChange={(e) => setTitle(e.target.value)} />
       <input
-        className="prompt-input"
-        placeholder="Prompt for the agent"
-        value={prompt}
-        onChange={(e) => setPrompt(e.target.value)}
+        className="description-input"
+        placeholder="Description: what should the agent do?"
+        value={description}
+        onChange={(e) => setDescription(e.target.value)}
       />
       <button disabled={result.fetching || !title.trim()}>Add task</button>
       {result.error && <span className="error">{result.error.message}</span>}

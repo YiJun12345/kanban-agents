@@ -38,9 +38,9 @@ const column = (page: Page, name: string) =>
 
 const card = (page: Page, title: string) => page.locator('.card', { hasText: title })
 
-async function addTask(page: Page, title: string, prompt: string) {
+async function addTask(page: Page, title: string, description: string) {
   await page.getByPlaceholder('Task title').fill(title)
-  await page.getByPlaceholder('Prompt for the agent').fill(prompt)
+  await page.getByPlaceholder('Description').fill(description)
   await page.getByRole('button', { name: 'Add task' }).click()
   await expect(column(page, 'To Do').locator('.card', { hasText: title })).toBeVisible()
 }
@@ -68,13 +68,13 @@ test('agent works on a task and the review shows its diff', async ({ page }) => 
 
   // Live logs arrive through the subscription while the agent runs
   const panel = page.locator('.log-panel')
-  await expect(panel.locator('pre').first()).toContainText('working... step 1/3')
+  await expect(panel.locator('pre.terminal')).toContainText('working... step 1/3')
 
   // The card moves by itself when the agent finishes
   await expect(column(page, 'In Review').locator('.card', { hasText: 'Add greeting' })).toBeVisible({
     timeout: 15_000,
   })
-  await expect(panel.locator('pre').first()).toContainText('committed changes')
+  await expect(panel.locator('pre.terminal')).toContainText('committed changes')
   await expect(panel.getByRole('heading', { name: 'Changes' })).toBeVisible()
   await expect(panel.locator('pre.diff .add', { hasText: '+- add a greeting' })).toBeVisible()
 })
@@ -88,7 +88,7 @@ test('failing agent moves the card to Failed', async ({ page }) => {
     timeout: 15_000,
   })
   await card(page, 'Broken task').click()
-  await expect(page.locator('.log-panel pre').first()).toContainText('something went wrong')
+  await expect(page.locator('.log-panel pre.terminal')).toContainText('something went wrong')
   await expect(page.locator('.log-panel pre.diff')).toHaveCount(0) // nothing to review
 })
 

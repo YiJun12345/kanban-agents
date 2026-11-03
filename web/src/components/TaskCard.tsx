@@ -1,10 +1,11 @@
 import { useDraggable } from '@dnd-kit/core'
 import type { TaskStatus } from '../gql/graphql'
+import { timeAgo } from '../time'
 
 type Props = {
   id: string
   title: string
-  prompt: string
+  description: string
   status: TaskStatus
   agent: string
   updatedAt: string
@@ -12,16 +13,7 @@ type Props = {
   onSelect: (id: string) => void
 }
 
-// "just now", "5m ago", "3h ago", "2d ago"
-function timeAgo(iso: string) {
-  const minutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000)
-  if (minutes < 1) return 'just now'
-  if (minutes < 60) return `${minutes}m ago`
-  if (minutes < 60 * 24) return `${Math.floor(minutes / 60)}h ago`
-  return `${Math.floor(minutes / (60 * 24))}d ago`
-}
-
-export function TaskCard({ id, title, prompt, status, agent, updatedAt, selected, onSelect }: Props) {
+export function TaskCard({ id, title, description, status, agent, updatedAt, selected, onSelect }: Props) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id })
 
   // While dragging, dnd-kit tells us how far the pointer moved; we shift the card by that much
@@ -42,7 +34,7 @@ export function TaskCard({ id, title, prompt, status, agent, updatedAt, selected
       {...attributes}
     >
       <strong>{title}</strong>
-      {prompt && <p className="card-prompt">{prompt}</p>}
+      {description && <p className="card-description">{description}</p>}
       <footer>
         <span className="badge">{agent.toLowerCase()}</span>
         {status === 'IN_PROGRESS' ? (

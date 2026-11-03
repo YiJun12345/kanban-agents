@@ -128,7 +128,7 @@ export default function App() {
                         key={t.id}
                         id={t.id}
                         title={t.title}
-                        prompt={t.prompt}
+                        description={t.prompt}
                         status={t.status}
                         agent={t.agent}
                         updatedAt={t.updatedAt}

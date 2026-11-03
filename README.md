@@ -117,7 +117,7 @@ Create a project that points at any local git repo with a `main` branch (in Grap
 mutation { createProject(name: "My app", repoPath: "/path/to/repo") { id } }
 ```
 
-Then add tasks in the UI and drag them to **In Progress**. Put the word `fail` in a prompt to
+Then add tasks in the UI and drag them to **In Progress**. Put the word `fail` in a description to
 see the failure path.
 
 ## Tests

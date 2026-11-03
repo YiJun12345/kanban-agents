@@ -151,7 +151,7 @@ h1 {
   transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.new-task .prompt-input {
+.new-task .description-input {
   width: 320px;
 }
 
@@ -308,7 +308,7 @@ h1 {
   line-height: 1.35;
 }
 
-.card-prompt {
+.card-description {
   margin: 0;
   color: var(--muted);
   font-size: 12.5px;
@@ -394,8 +394,9 @@ h1 {
 }
 
 .log-panel h2 {
-  margin: 8px 0 0;
+  margin: 0 0 8px;
   font-size: 18px;
+  line-height: 1.3;
 }
 
 .log-panel header button {
@@ -438,6 +439,7 @@ h1 {
 }
 
 .live {
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 5px;
@@ -446,7 +448,59 @@ h1 {
   letter-spacing: 0;
 }
 
-.log-panel .prompt {
+/* Assignee / Branch / Updated, like Jira's fields */
+.details {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 8px 12px;
+  margin: 20px 0 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.details dt {
+  color: var(--muted);
+}
+
+.details dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.assignee {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.details code {
+  font-family: ui-monospace, 'Cascadia Code', Menlo, monospace;
+  font-size: 12px;
+}
+
+.log-panel h3 .aside {
+  margin-left: auto;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+.log-panel .description {
   margin: 0;
   padding: 10px 12px;
   border-radius: 8px;
