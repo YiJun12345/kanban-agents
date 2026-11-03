@@ -30,11 +30,12 @@ export function NewTaskForm({ projectId }: { projectId: string }) {
     <form className="new-task" onSubmit={handleSubmit}>
       <input placeholder="Task title" value={title} onChange={(e) => setTitle(e.target.value)} />
       <input
+        className="prompt-input"
         placeholder="Prompt for the agent"
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
       />
-      <button disabled={result.fetching}>Add task</button>
+      <button disabled={result.fetching || !title.trim()}>Add task</button>
       {result.error && <span className="error">{result.error.message}</span>}
     </form>
   )

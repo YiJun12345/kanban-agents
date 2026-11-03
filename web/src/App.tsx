@@ -16,8 +16,10 @@ const BoardQuery = graphql(`
       tasks {
         id
         title
+        prompt
         status
         agent
+        updatedAt
       }
     }
   }
@@ -39,7 +41,6 @@ const TaskUpdatedSubscription = graphql(`
     }
   }
 `)
-
 
 const COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: 'TODO', label: 'To Do' },
@@ -71,11 +72,11 @@ export default function App() {
   // Only start a drag after the pointer moves 5px, so a plain click isn't a drag
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
-  if (fetching && !data) return <p>Loading…</p>
-  if (error) return <p>Error: {error.message}</p>
+  if (fetching && !data) return <p className="message">Loading…</p>
+  if (error) return <p className="message error">Error: {error.message}</p>
 
   const project = data?.projects[0]
-  if (!project) return <p>No project yet. Create one in GraphiQL first.</p>
+  if (!project) return <p className="message">No project yet. Create one in GraphiQL first.</p>
 
   async function handleDragEnd({ active, over }: DragEndEvent) {
     if (!over || !project) return
@@ -88,37 +89,71 @@ export default function App() {
     setMoveError(res.error ? (res.error.graphQLErrors[0]?.message ?? res.error.message) : null)
   }
 
+  const running = project.tasks.filter((t) => t.status === 'IN_PROGRESS').length
+
   return (
-    <main>
-      <h1>{project.name}</h1>
-      <NewTaskForm projectId={project.id} />
-      {moveError && <p className="error">{moveError}</p>}
+    <div className="app">
+      <header className="topbar">
+        <div className="brand">
+          <span className="logo" aria-hidden>
+            ▦
+          </span>
+          Kanban Agents
+        </div>
+        <div className="stats">
+          <span>{project.tasks.length} tasks</span>
+          {running > 0 && (
+            <span className="running">
+              <span className="pulse" /> {running} agent{running > 1 ? 's' : ''} running
+            </span>
+          )}
+        </div>
+      </header>
 
-      <div className="layout">
-        <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-          <div className="board">
-            {COLUMNS.map((col) => (
-              <Column key={col.status} status={col.status} label={col.label}>
-                {project.tasks
-                  .filter((t) => t.status === col.status)
-                  .map((t) => (
-                    <TaskCard
-                      key={t.id}
-                      id={t.id}
-                      title={t.title}
-                      agent={t.agent}
-                      selected={t.id === selectedId}
-                      onSelect={setSelectedId}
-                    />
-                  ))}
-              </Column>
-            ))}
-          </div>
-        </DndContext>
+      <main>
+        <div className="board-header">
+          <h1>{project.name}</h1>
+          <NewTaskForm projectId={project.id} />
+        </div>
 
-        {selectedId && <LogPanel taskId={selectedId} onClose={() => setSelectedId(null)} />}
-      </div>
+        <div className="layout">
+          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+            <div className="board">
+              {COLUMNS.map((col) => {
+                const tasks = project.tasks.filter((t) => t.status === col.status)
+                return (
+                  <Column key={col.status} status={col.status} label={col.label} count={tasks.length}>
+                    {tasks.map((t) => (
+                      <TaskCard
+                        key={t.id}
+                        id={t.id}
+                        title={t.title}
+                        prompt={t.prompt}
+                        status={t.status}
+                        agent={t.agent}
+                        updatedAt={t.updatedAt}
+                        selected={t.id === selectedId}
+                        onSelect={setSelectedId}
+                      />
+                    ))}
+                  </Column>
+                )
+              })}
+            </div>
+          </DndContext>
 
-    </main>
+          {selectedId && <LogPanel taskId={selectedId} onClose={() => setSelectedId(null)} />}
+        </div>
+      </main>
+
+      {moveError && (
+        <div className="toast" role="alert">
+          <p className="error">{moveError}</p>
+          <button onClick={() => setMoveError(null)} aria-label="Dismiss">
+            ✕
+          </button>
+        </div>
+      )}
+    </div>
   )
 }

@@ -29,23 +29,37 @@ const TaskLogsSubscription = graphql(`
   }
 `)
 
-// Colour each line of a unified diff: + added, - removed, @@ position markers
+// Colour each line of a unified diff: + added, - removed, @@ position, file headers muted
+function lineKind(line: string) {
+  if (line.startsWith('+++') || line.startsWith('---')) return 'meta'
+  if (line.startsWith('diff ') || line.startsWith('index ') || line.startsWith('new file')) return 'meta'
+  if (line.startsWith('+')) return 'add'
+  if (line.startsWith('-')) return 'del'
+  if (line.startsWith('@@')) return 'hunk'
+  return ''
+}
+
 function DiffView({ diff }: { diff: string }) {
-    return (
-      <pre className="diff">
-        {diff.split('\n').map((line, i) => {
-          const kind = line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('@@') ? 'hunk' : ''
-          return (
-            <span key={i} className={kind}>
-              {line}
-              {'\n'}
-            </span>
-          )
-        })}
-      </pre>
-    )
-  }
-  
+  return (
+    <pre className="diff">
+      {diff.trimEnd().split('\n').map((line, i) => (
+        <span key={i} className={lineKind(line)}>
+          {line}
+          {'\n'}
+        </span>
+      ))}
+    </pre>
+  )
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  TODO: 'To Do',
+  IN_PROGRESS: 'In Progress',
+  IN_REVIEW: 'In Review',
+  DONE: 'Done',
+  FAILED: 'Failed',
+}
+
 type Line = { runId: string; seq: number; content: string }
 
 export function LogPanel({ taskId, onClose }: { taskId: string; onClose: () => void }) {
@@ -76,24 +90,46 @@ export function LogPanel({ taskId, onClose }: { taskId: string; onClose: () => v
   return (
     <aside className="log-panel">
       <header>
-        <h2>{task.title}</h2>
-        <button onClick={onClose}>✕</button>
+        <div>
+          <span className="status-badge" data-status={task.status}>
+            {STATUS_LABEL[task.status]}
+          </span>
+          <h2>{task.title}</h2>
+        </div>
+        <button onClick={onClose} aria-label="Close">
+          ✕
+        </button>
       </header>
-      <p className="status">{task.status}</p>
-      <p className="prompt">{task.prompt}</p>
-      <pre>
-        {lines.length === 0
-          ? 'No agent output yet. Drag the card to In Progress to start.'
-          : lines.map((l) => l.content).join('\n')}
-      </pre>
 
-        {task.diff && (
-        <>
-            <h3>Changes</h3>
-            <DiffView diff={task.diff} />
-        </>
-        )}
-        </aside>
+      {task.prompt && (
+        <section>
+          <h3>Prompt</h3>
+          <p className="prompt">{task.prompt}</p>
+        </section>
+      )}
 
+      <section>
+        <h3>
+          Agent output
+          {task.status === 'IN_PROGRESS' && (
+            <span className="live">
+              <span className="pulse" /> live
+            </span>
+          )}
+        </h3>
+        <pre className="terminal">
+          {lines.length === 0
+            ? 'No agent output yet. Drag the card to In Progress to start.'
+            : lines.map((l) => l.content).join('\n')}
+        </pre>
+      </section>
+
+      {task.diff && (
+        <section>
+          <h3>Changes</h3>
+          <DiffView diff={task.diff} />
+        </section>
+      )}
+    </aside>
   )
 }

@@ -14,7 +14,7 @@ import type { TypedDocumentNode as DocumentNode } from '@graphql-typed-document-
  * Learn more about it here: https://the-guild.dev/graphql/codegen/plugins/presets/preset-client#reducing-bundle-size
  */
 type Documents = {
-    "\n  query Board {\n    projects {\n      id\n      name\n      tasks {\n        id\n        title\n        status\n        agent\n      }\n    }\n  }\n": typeof types.BoardDocument,
+    "\n  query Board {\n    projects {\n      id\n      name\n      tasks {\n        id\n        title\n        prompt\n        status\n        agent\n        updatedAt\n      }\n    }\n  }\n": typeof types.BoardDocument,
     "\n  mutation MoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n": typeof types.MoveTaskDocument,
     "\n  subscription TaskUpdated($projectId: UUID!) {\n    taskUpdated(projectId: $projectId) {\n      id\n    }\n  }\n": typeof types.TaskUpdatedDocument,
     "\n  query TaskLogs($id: UUID!) {\n    task(id: $id) {\n      id\n      title\n      status\n      prompt\n      diff\n      logs {\n        runId\n        seq\n        content\n      }\n    }\n  }\n": typeof types.TaskLogsDocument,
@@ -22,7 +22,7 @@ type Documents = {
     "\n  mutation CreateTask($projectId: UUID!, $title: String!, $prompt: String!) {\n    createTask(projectId: $projectId, title: $title, prompt: $prompt) {\n      id\n    }\n  }\n": typeof types.CreateTaskDocument,
 };
 const documents: Documents = {
-    "\n  query Board {\n    projects {\n      id\n      name\n      tasks {\n        id\n        title\n        status\n        agent\n      }\n    }\n  }\n": types.BoardDocument,
+    "\n  query Board {\n    projects {\n      id\n      name\n      tasks {\n        id\n        title\n        prompt\n        status\n        agent\n        updatedAt\n      }\n    }\n  }\n": types.BoardDocument,
     "\n  mutation MoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n": types.MoveTaskDocument,
     "\n  subscription TaskUpdated($projectId: UUID!) {\n    taskUpdated(projectId: $projectId) {\n      id\n    }\n  }\n": types.TaskUpdatedDocument,
     "\n  query TaskLogs($id: UUID!) {\n    task(id: $id) {\n      id\n      title\n      status\n      prompt\n      diff\n      logs {\n        runId\n        seq\n        content\n      }\n    }\n  }\n": types.TaskLogsDocument,
@@ -47,7 +47,7 @@ export function graphql(source: string): unknown;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query Board {\n    projects {\n      id\n      name\n      tasks {\n        id\n        title\n        status\n        agent\n      }\n    }\n  }\n"): (typeof documents)["\n  query Board {\n    projects {\n      id\n      name\n      tasks {\n        id\n        title\n        status\n        agent\n      }\n    }\n  }\n"];
+export function graphql(source: "\n  query Board {\n    projects {\n      id\n      name\n      tasks {\n        id\n        title\n        prompt\n        status\n        agent\n        updatedAt\n      }\n    }\n  }\n"): (typeof documents)["\n  query Board {\n    projects {\n      id\n      name\n      tasks {\n        id\n        title\n        prompt\n        status\n        agent\n        updatedAt\n      }\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
