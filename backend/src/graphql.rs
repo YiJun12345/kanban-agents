@@ -7,9 +7,13 @@ use tokio_stream::{Stream, StreamExt};
 use uuid::Uuid;
 
 use crate::agent::Agents;
-use crate::domain::{AgentKind, JournalActor, JournalEntry, JournalKind, LogLine, Project, Task, TaskStatus};
+use crate::domain::{
+    AgentKind, Claim, JournalActor, JournalEntry, JournalKind, LogLine, NoteKind, Project, Task,
+    TaskStatus, Worker,
+};
 use crate::events::{BoardEvent, Events};
 use crate::journal::{self, NewEntry};
+use crate::ledger::{self, Assignment};
 use crate::{git, review, tasks};
 
 pub type AppSchema = Schema<QueryRoot, MutationRoot, SubscriptionRoot>;
@@ -20,6 +24,26 @@ pub fn build_schema(pool: PgPool, events: Events, agents: Arc<Agents>) -> AppSch
         .data(events)
         .data(agents)
         .finish()
+}
+
+/// The token from the request's `Authorization: Bearer ...` header, if there was one.
+/// People use the board without one; workers must send theirs.
+#[derive(Clone, Default)]
+pub struct Bearer(pub Option<String>);
+
+/// The worker making this request, or an error that says how to become one
+async fn caller(ctx: &Context<'_>) -> Result<Worker> {
+    let Some(token) = ctx.data_opt::<Bearer>().and_then(|bearer| bearer.0.as_deref()) else {
+        return Err("this needs a worker token: send it as `Authorization: Bearer <token>`".into());
+    };
+    Ok(ledger::authenticate(ctx.data::<PgPool>()?, token).await?)
+}
+
+/// A new worker and its token. The token is shown this once and cannot be read again.
+#[derive(SimpleObject)]
+pub struct RegisteredWorker {
+    worker: Worker,
+    token: String,
 }
 
 /// An agent you can give a task to, and whether it can run on this machine
@@ -56,12 +80,32 @@ impl QueryRoot {
                 reason: claude,
             },
             AgentOption {
+                kind: AgentKind::External,
+                label: "External worker (CLI)".into(),
+                ready: true,
+                reason: None,
+            },
+            AgentOption {
                 kind: AgentKind::Codex,
                 label: "Codex".into(),
                 ready: false,
                 reason: Some("not supported yet".into()),
             },
         ])
+    }
+
+    /// Everything that takes work from the board: built-in runners and outside workers
+    async fn workers(&self, ctx: &Context<'_>) -> Result<Vec<Worker>> {
+        let pool = ctx.data::<PgPool>()?;
+        let rows = sqlx::query_as::<_, Worker>("SELECT * FROM workers ORDER BY created_at")
+            .fetch_all(pool)
+            .await?;
+        Ok(rows)
+    }
+
+    /// The worker whose token this request carries
+    async fn me(&self, ctx: &Context<'_>) -> Result<Worker> {
+        caller(ctx).await
     }
 
     async fn task(&self, ctx: &Context<'_>, id: Uuid) -> Result<Option<Task>> {
@@ -162,12 +206,22 @@ impl Task {
         .await?;
         Ok(rows)
     }
+    /// Who is working on this task right now (nobody: null)
+    async fn claim(&self, ctx: &Context<'_>) -> Result<Option<Claim>> {
+        let pool = ctx.data::<PgPool>()?;
+        let row = sqlx::query_as::<_, Claim>("SELECT * FROM claims WHERE task_id = $1")
+            .bind(self.id)
+            .fetch_optional(pool)
+            .await?;
+        Ok(row)
+    }
+
     /// The one journal line shown on the card: the newest note, summary or error
     async fn headline(&self, ctx: &Context<'_>) -> Result<Option<JournalEntry>> {
         let pool = ctx.data::<PgPool>()?;
         let row = sqlx::query_as::<_, JournalEntry>(
             "SELECT * FROM journal_entries
-                 WHERE task_id = $1 AND kind IN ('note', 'summary', 'error')
+                 WHERE task_id = $1 AND kind IN ('note', 'summary', 'error', 'checkpoint')
                  ORDER BY seq DESC LIMIT 1",
         )
         .bind(self.id)
@@ -177,6 +231,52 @@ impl Task {
     }
     
 
+}
+
+#[ComplexObject]
+impl Worker {
+    /// True for the backend's own runners, which have no token
+    async fn builtin(&self) -> bool {
+        self.is_builtin()
+    }
+
+    /// The tasks this worker is working on right now
+    async fn claims(&self, ctx: &Context<'_>) -> Result<Vec<Claim>> {
+        let pool = ctx.data::<PgPool>()?;
+        let rows = sqlx::query_as::<_, Claim>(
+            "SELECT * FROM claims WHERE worker_id = $1 ORDER BY claimed_at",
+        )
+        .bind(self.id)
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+}
+
+#[ComplexObject]
+impl Claim {
+    async fn worker(&self, ctx: &Context<'_>) -> Result<Worker> {
+        let pool = ctx.data::<PgPool>()?;
+        let worker = sqlx::query_as::<_, Worker>("SELECT * FROM workers WHERE id = $1")
+            .bind(self.worker_id)
+            .fetch_one(pool)
+            .await?;
+        Ok(worker)
+    }
+
+    async fn task(&self, ctx: &Context<'_>) -> Result<Task> {
+        let pool = ctx.data::<PgPool>()?;
+        let task = sqlx::query_as::<_, Task>("SELECT * FROM tasks WHERE id = $1")
+            .bind(self.task_id)
+            .fetch_one(pool)
+            .await?;
+        Ok(task)
+    }
+
+    /// Seconds since the worker last said it was still working
+    async fn quiet_secs(&self) -> i64 {
+        (chrono::Utc::now() - self.heartbeat_at).num_seconds().max(0)
+    }
 }
 
 #[ComplexObject]
@@ -255,8 +355,8 @@ impl MutationRoot {
     }
 
 
-    /// Move a card. Some moves do work:
-    /// into In Progress starts the agent, back to To Do stops it, into Done merges its branch.
+    /// Move a card. Some moves do work: into In Progress offers the task to its agent,
+    /// back to To Do takes it away again, into Done merges its branch.
     async fn move_task(&self, ctx: &Context<'_>, id: Uuid, status: TaskStatus) -> Result<Task> {
         let pool = ctx.data::<PgPool>()?;
         let events = ctx.data::<Events>()?;
@@ -272,9 +372,12 @@ impl MutationRoot {
         let _ = events.send(BoardEvent::Journal(entry));
 
         match task.status {
-            TaskStatus::InProgress => agents.start(pool.clone(), events.clone(), task.clone(), None),
+            TaskStatus::InProgress => agents.dispatch(pool.clone(), events.clone(), task.clone()),
             TaskStatus::Todo => {
-                agents.stop(id); // does nothing if no agent is running
+                // Whoever was working on it loses the task. A built-in runner is told at
+                // once; an outside worker finds out when its next heartbeat is refused.
+                agents.stop(id);
+                ledger::revoke(pool, events, id).await?;
             }
             _ => {}
         }
@@ -317,6 +420,97 @@ impl MutationRoot {
 
         let entry = NewEntry::new(task_id, JournalActor::Human, JournalKind::Note, message);
         Ok(journal::record(pool, ctx.data::<Events>()?, entry).await?)
+    }
+
+    // ---------- for workers (agents). All but registerWorker need the worker's token ----------
+
+    /// Add an outside worker and get its token. Keep the token: it is shown only once.
+    async fn register_worker(&self, ctx: &Context<'_>, name: String) -> Result<RegisteredWorker> {
+        let (worker, token) = ledger::register(ctx.data::<PgPool>()?, &name).await?;
+        Ok(RegisteredWorker { worker, token })
+    }
+
+    /// Take a task that is In Progress and waiting for an outside worker
+    async fn claim_task(&self, ctx: &Context<'_>, id: Uuid) -> Result<Assignment> {
+        let worker = caller(ctx).await?;
+        Ok(ledger::claim(ctx.data::<PgPool>()?, ctx.data::<Events>()?, &worker, id).await?)
+    }
+
+    /// Take the task that has waited longest (in one project, or in any). Null: nothing waits.
+    async fn claim_next_task(
+        &self,
+        ctx: &Context<'_>,
+        project_id: Option<Uuid>,
+    ) -> Result<Option<Assignment>> {
+        let worker = caller(ctx).await?;
+        let (pool, events) = (ctx.data::<PgPool>()?, ctx.data::<Events>()?);
+        Ok(ledger::claim_next(pool, events, &worker, project_id).await?)
+    }
+
+    /// "Still working." A claim with no heartbeat for a minute expires. An error here
+    /// means the claim is gone (for example a person stopped the task): stop working.
+    async fn heartbeat(&self, ctx: &Context<'_>, task_id: Uuid) -> Result<Claim> {
+        let worker = caller(ctx).await?;
+        Ok(ledger::heartbeat(ctx.data::<PgPool>()?, ctx.data::<Events>()?, &worker, task_id).await?)
+    }
+
+    /// Write a note in the task's journal, optionally saying what kind of note it is
+    async fn add_worker_note(
+        &self,
+        ctx: &Context<'_>,
+        task_id: Uuid,
+        kind: Option<NoteKind>,
+        message: String,
+    ) -> Result<JournalEntry> {
+        let worker = caller(ctx).await?;
+        let (pool, events) = (ctx.data::<PgPool>()?, ctx.data::<Events>()?);
+        Ok(ledger::note(pool, events, &worker, task_id, JournalKind::Note, kind, &message).await?)
+    }
+
+    /// Record where the work stands, so another run could continue from here
+    async fn checkpoint(
+        &self,
+        ctx: &Context<'_>,
+        task_id: Uuid,
+        summary: String,
+        #[graphql(default)] intent: String,
+        #[graphql(default)] next_action: String,
+    ) -> Result<JournalEntry> {
+        let worker = caller(ctx).await?;
+        let (pool, events) = (ctx.data::<PgPool>()?, ctx.data::<Events>()?);
+        Ok(ledger::checkpoint(pool, events, &worker, task_id, &summary, &intent, &next_action).await?)
+    }
+
+    /// Add a line to the run's raw output
+    async fn append_log(&self, ctx: &Context<'_>, task_id: Uuid, content: String) -> Result<LogLine> {
+        let worker = caller(ctx).await?;
+        let (pool, events) = (ctx.data::<PgPool>()?, ctx.data::<Events>()?);
+        Ok(ledger::log_line(pool, events, &worker, task_id, content).await?)
+    }
+
+    /// Finished: the board commits the worktree and moves the task to In Review
+    async fn submit_task(
+        &self,
+        ctx: &Context<'_>,
+        task_id: Uuid,
+        summary: Option<String>,
+    ) -> Result<Task> {
+        let worker = caller(ctx).await?;
+        let (pool, events) = (ctx.data::<PgPool>()?, ctx.data::<Events>()?);
+        Ok(ledger::submit(pool, events, &worker, task_id, summary.as_deref()).await?)
+    }
+
+    /// Could not do it: the task moves to Failed with the reason in its journal
+    async fn fail_task(&self, ctx: &Context<'_>, task_id: Uuid, reason: String) -> Result<Task> {
+        let worker = caller(ctx).await?;
+        let (pool, events) = (ctx.data::<PgPool>()?, ctx.data::<Events>()?);
+        Ok(ledger::fail(pool, events, &worker, task_id, Some(reason), None).await?)
+    }
+
+    /// Give the task back unfinished; it waits for another worker
+    async fn release_task(&self, ctx: &Context<'_>, task_id: Uuid) -> Result<Task> {
+        let worker = caller(ctx).await?;
+        Ok(ledger::release(ctx.data::<PgPool>()?, ctx.data::<Events>()?, &worker, task_id).await?)
     }
 }
 
@@ -715,7 +909,8 @@ mod tests {
         // As if the backend had been killed while the agent was working
         sqlx::query("UPDATE tasks SET status = 'in_progress'").execute(&pool).await.unwrap();
 
-        crate::agent::recover(&pool).await.unwrap();
+        let (events, _) = broadcast::channel(16);
+        ledger::recover(&pool, &events).await.unwrap();
 
         assert_eq!(get_task(&schema, &task).await["status"], "FAILED");
         let messages: Vec<_> = journal(&schema, &task).await.into_iter().map(|e| e.2).collect();
@@ -744,7 +939,7 @@ mod tests {
             [
                 "HUMAN STATUS",        // you moved it to In Progress
                 "SYSTEM RUN_STARTED",  // run #1 on its branch
-                "AGENT NOTE",          // "Plan: ..."
+                "AGENT NOTE",          // the plan
                 "AGENT NOTE",          // "Wrote the request to AGENT_NOTES.md"
                 "AGENT SUMMARY",       // the agent's final report
                 "SYSTEM COMMIT",       // hash + files
@@ -754,7 +949,7 @@ mod tests {
         );
         assert_eq!(entries[0].2, "Moved from To Do to In Progress");
         assert!(entries[1].2.starts_with("Run #1 started on branch kanban/task-"));
-        assert_eq!(entries[2].2, "Plan: add a greeting");
+        assert_eq!(entries[2].2, "add a greeting"); // a PLAN note
         assert_eq!(entries[4].2, "Added \"add a greeting\" to AGENT_NOTES.md");
         assert!(entries[5].2.ends_with(": 1 file changed"), "{}", entries[5].2);
         assert_eq!(entries[7].2, "Moved from In Progress to In Review");
@@ -762,11 +957,17 @@ mod tests {
         // The commit's details list the files, and the commit message carries the agent's notes
         let data = exec(
             &schema,
-            "query($id: UUID!) { task(id: $id) { worktreePath journal { kind details } } }",
+            "query($id: UUID!) {
+                task(id: $id) { worktreePath journal { kind noteKind author details } }
+            }",
             json!({ "id": task }),
         )
         .await;
         assert_eq!(data["task"]["journal"][5]["details"]["files"], json!(["AGENT_NOTES.md"]));
+        // Notes say what kind they are and which worker wrote them
+        assert_eq!(data["task"]["journal"][2]["noteKind"], "PLAN");
+        assert_eq!(data["task"]["journal"][3]["noteKind"], "PROGRESS");
+        assert_eq!(data["task"]["journal"][2]["author"], "builtin-fake");
         let worktree = data["task"]["worktreePath"].as_str().unwrap();
         let log = git_out(worktree, &["log", "-1", "--format=%B"]).await;
         assert!(log.contains("Added \"add a greeting\" to AGENT_NOTES.md"), "{log}");
@@ -1176,9 +1377,317 @@ echo '{"type":"result","subtype":"success","is_error":false,"num_turns":2,"total
                 { "kind": "FAKE", "ready": true, "reason": null },
                 { "kind": "CLAUDE", "ready": false,
                   "reason": "KANBAN_ANTHROPIC_API_KEY is not set in backend/.env" },
+                { "kind": "EXTERNAL", "ready": true, "reason": null },
                 { "kind": "CODEX", "ready": false, "reason": "not supported yet" },
             ])
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    // ---------- the ledger: outside workers ----------
+
+    /// Like exec, but as the worker that owns this token
+    async fn exec_as(schema: &AppSchema, token: &str, query: &str, vars: Value) -> Value {
+        let req = async_graphql::Request::new(query)
+            .variables(async_graphql::Variables::from_json(vars))
+            .data(Bearer(Some(token.to_string())));
+        let res = schema.execute(req).await;
+        assert!(res.errors.is_empty(), "GraphQL errors: {:?}", res.errors);
+        res.data.into_json().unwrap()
+    }
+
+    async fn exec_err_as(schema: &AppSchema, token: &str, query: &str, vars: Value) -> String {
+        let req = async_graphql::Request::new(query)
+            .variables(async_graphql::Variables::from_json(vars))
+            .data(Bearer(Some(token.to_string())));
+        let res = schema.execute(req).await;
+        assert!(!res.errors.is_empty(), "expected an error, got {:?}", res.data);
+        res.errors[0].message.clone()
+    }
+
+    /// Register a worker and return its token
+    async fn register(schema: &AppSchema, name: &str) -> String {
+        let data = exec(
+            schema,
+            "mutation($n: String!) { registerWorker(name: $n) { token worker { name builtin } } }",
+            json!({ "n": name }),
+        )
+        .await;
+        assert_eq!(data["registerWorker"]["worker"], json!({ "name": name, "builtin": false }));
+        data["registerWorker"]["token"].as_str().unwrap().to_string()
+    }
+
+    /// A task for outside workers, already moved to In Progress (so it waits for a claim)
+    async fn waiting_task(schema: &AppSchema, repo: &str) -> String {
+        let project = create_project(schema, repo).await;
+        let data = exec(
+            schema,
+            "mutation($p: UUID!) {
+                createTask(projectId: $p, title: \"T\", prompt: \"say hello\", agent: EXTERNAL) { id }
+            }",
+            json!({ "p": project }),
+        )
+        .await;
+        let task = data["createTask"]["id"].as_str().unwrap().to_string();
+        move_task(schema, &task, "IN_PROGRESS").await;
+        task
+    }
+
+    const CLAIM: &str = "mutation($id: UUID!) {
+        claimTask(id: $id) { runNumber branch worktreePath journal feedback task { title prompt } }
+    }";
+    const HEARTBEAT: &str = "mutation($id: UUID!) { heartbeat(taskId: $id) { quietSecs } }";
+
+    async fn holder(schema: &AppSchema, task: &str) -> Value {
+        let data = exec(
+            schema,
+            "query($id: UUID!) { task(id: $id) { claim { worker { name } } } }",
+            json!({ "id": task }),
+        )
+        .await;
+        data["task"]["claim"]["worker"]["name"].clone()
+    }
+
+    #[sqlx::test]
+    async fn outside_worker_does_a_task_from_claim_to_review(pool: PgPool) {
+        let (root, repo) = temp_repo().await;
+        let schema = schema(pool);
+        let task = waiting_task(&schema, &repo).await;
+        let id = json!({ "id": task });
+
+        // In Progress, but nobody is working on it: no agent is started for this kind
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(get_task(&schema, &task).await["status"], "IN_PROGRESS");
+        assert_eq!(holder(&schema, &task).await, Value::Null);
+        assert!(journal(&schema, &task).await.len() == 1, "only the move is journaled");
+
+        // A worker takes the next waiting task and is told where to work
+        let token = register(&schema, "w1").await;
+        let data = exec_as(
+            &schema,
+            &token,
+            "mutation { claimNextTask { runNumber worktreePath feedback task { id prompt } } }",
+            json!({}),
+        )
+        .await;
+        let job = &data["claimNextTask"];
+        assert_eq!(job["task"], json!({ "id": task, "prompt": "say hello" }));
+        assert_eq!(job["runNumber"], 1);
+        assert_eq!(job["feedback"], Value::Null);
+        let worktree = job["worktreePath"].as_str().unwrap();
+        assert!(Path::new(worktree).join("README.md").exists(), "a worktree of the repo");
+        assert_eq!(holder(&schema, &task).await, "w1");
+        // Nothing else is waiting now
+        let none = exec_as(&schema, &token, "mutation { claimNextTask { runNumber } }", json!({})).await;
+        assert_eq!(none["claimNextTask"], Value::Null);
+
+        // It reports while it works...
+        exec_as(
+            &schema,
+            &token,
+            "mutation($id: UUID!) {
+                plan: addWorkerNote(taskId: $id, kind: PLAN, message: \"write hello.txt\") { id }
+                checkpoint(taskId: $id, summary: \"file written\", intent: \"greet\",
+                           nextAction: \"submit\") { id }
+                appendLog(taskId: $id, content: \"$ echo hello > hello.txt\") { seq }
+                heartbeat(taskId: $id) { quietSecs }
+            }",
+            id.clone(),
+        )
+        .await;
+        std::fs::write(format!("{worktree}/hello.txt"), "hello\n").unwrap();
+
+        // ...and submits. The board commits its work and moves the card.
+        let data = exec_as(
+            &schema,
+            &token,
+            "mutation($id: UUID!) { submitTask(taskId: $id, summary: \"Added hello.txt\") { status } }",
+            id.clone(),
+        )
+        .await;
+        assert_eq!(data["submitTask"]["status"], "IN_REVIEW");
+
+        let after = get_task(&schema, &task).await;
+        assert!(after["diff"].as_str().unwrap().contains("+hello"));
+        assert_eq!(holder(&schema, &task).await, Value::Null, "the claim ends with the run");
+        assert!(log_text(&after).contains("$ echo hello > hello.txt"));
+
+        let data = exec(
+            &schema,
+            "query($id: UUID!) { task(id: $id) { journal { actor kind noteKind author message details } } }",
+            id,
+        )
+        .await;
+        let entries = data["task"]["journal"].as_array().unwrap();
+        let kinds: Vec<_> = entries.iter().map(|e| e["kind"].as_str().unwrap()).collect();
+        assert_eq!(
+            kinds,
+            ["STATUS", "RUN_STARTED", "NOTE", "CHECKPOINT", "SUMMARY", "COMMIT", "RUN_FINISHED", "STATUS"]
+        );
+        assert_eq!(entries[1]["details"]["worker"], "w1");
+        assert_eq!(
+            (&entries[2]["noteKind"], &entries[2]["author"], &entries[2]["message"]),
+            (&json!("PLAN"), &json!("w1"), &json!("write hello.txt"))
+        );
+        assert_eq!(entries[3]["details"], json!({ "intent": "greet", "next_action": "submit" }));
+        let commit = git_out(worktree, &["log", "-1", "--format=%B"]).await;
+        assert!(commit.contains("Added hello.txt") && commit.contains("- Plan: write hello.txt"), "{commit}");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[sqlx::test]
+    async fn a_task_has_one_worker_at_a_time(pool: PgPool) {
+        let (root, repo) = temp_repo().await;
+        let schema = schema(pool);
+        let task = waiting_task(&schema, &repo).await;
+        let id = json!({ "id": task });
+        let (first, second) = (register(&schema, "first").await, register(&schema, "second").await);
+
+        exec_as(&schema, &first, CLAIM, id.clone()).await;
+        let err = exec_err_as(&schema, &second, CLAIM, id.clone()).await;
+        assert_eq!(err, "this task is already claimed by another worker");
+        assert_eq!(holder(&schema, &task).await, "first");
+
+        // The loser can do nothing to the task
+        let err = exec_err_as(&schema, &second, HEARTBEAT, id.clone()).await;
+        assert_eq!(err, "second does not hold a claim on this task");
+        let err = exec_err_as(
+            &schema,
+            &second,
+            "mutation($id: UUID!) { submitTask(taskId: $id) { id } }",
+            id.clone(),
+        )
+        .await;
+        assert_eq!(err, "second does not hold a claim on this task");
+
+        // When the first gives the task back, it waits again and the second can take it
+        let data = exec_as(
+            &schema,
+            &first,
+            "mutation($id: UUID!) { releaseTask(taskId: $id) { status } }",
+            id.clone(),
+        )
+        .await;
+        assert_eq!(data["releaseTask"]["status"], "IN_PROGRESS");
+        assert_eq!(holder(&schema, &task).await, Value::Null);
+        let data = exec_as(&schema, &second, CLAIM, id).await;
+        assert_eq!(data["claimTask"]["runNumber"], 2);
+        assert!(data["claimTask"]["journal"].as_str().unwrap().contains("Run released by first"));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[sqlx::test]
+    async fn worker_calls_need_a_token(pool: PgPool) {
+        let project = project_with_missing_repo(&pool).await;
+        let schema = schema(pool);
+        let task = create_task(&schema, &project, "x").await; // a fake-agent task, in To Do
+        let id = json!({ "id": task });
+
+        let err = exec_err(&schema, CLAIM, id.clone()).await;
+        assert_eq!(err, "this needs a worker token: send it as `Authorization: Bearer <token>`");
+        let err = exec_err_as(&schema, "kbt_made_up", CLAIM, id.clone()).await;
+        assert_eq!(err, "unknown worker token");
+
+        let token = register(&schema, "w1").await;
+        assert!(token.starts_with("kbt_") && token.len() == 68, "{token}");
+        let me = exec_as(&schema, &token, "{ me { name claims { taskId } } }", json!({})).await;
+        assert_eq!(me["me"], json!({ "name": "w1", "claims": [] }));
+
+        // A valid token is not enough: the task must be offered to outside workers
+        let err = exec_err_as(&schema, &token, CLAIM, id).await;
+        assert_eq!(err, "only a task in In Progress can be claimed (this one is in To Do)");
+
+        // Names are checked, and unique
+        let register = "mutation($n: String!) { registerWorker(name: $n) { token } }";
+        let err = exec_err(&schema, register, json!({ "n": "w1" })).await;
+        assert_eq!(err, "a worker named w1 already exists");
+        let err = exec_err(&schema, register, json!({ "n": "has spaces" })).await;
+        assert_eq!(err, "a worker name is 1 to 40 letters, digits, - or _");
+        let err = exec_err(&schema, register, json!({ "n": "builtin-fake" })).await;
+        assert_eq!(err, "names starting with builtin- are reserved");
+    }
+
+    #[sqlx::test]
+    async fn a_silent_worker_loses_its_claim(pool: PgPool) {
+        let (root, repo) = temp_repo().await;
+        let schema = schema(pool.clone());
+        let task = waiting_task(&schema, &repo).await;
+        let id = json!({ "id": task });
+        let token = register(&schema, "w1").await;
+        exec_as(&schema, &token, CLAIM, id.clone()).await;
+        let (events, _) = broadcast::channel(16);
+
+        // With a normal lease, a worker that has just claimed is fine
+        assert_eq!(ledger::expire(&pool, &events, ledger::LEASE).await.unwrap(), 0);
+
+        // With a lease of zero, any silence at all is too long
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(ledger::expire(&pool, &events, Duration::ZERO).await.unwrap(), 1);
+
+        assert_eq!(get_task(&schema, &task).await["status"], "FAILED");
+        assert_eq!(holder(&schema, &task).await, Value::Null);
+        let messages: Vec<_> = journal(&schema, &task).await.into_iter().map(|e| e.2).collect();
+        assert!(
+            messages.contains(&"No heartbeat from w1 for 0s, so its claim expired".to_string()),
+            "{messages:?}"
+        );
+        // The worker finds out the next time it calls
+        let err = exec_err_as(&schema, &token, HEARTBEAT, id).await;
+        assert_eq!(err, "w1 does not hold a claim on this task");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[sqlx::test]
+    async fn stopping_takes_the_task_away_from_an_outside_worker(pool: PgPool) {
+        let (root, repo) = temp_repo().await;
+        let schema = schema(pool);
+        let task = waiting_task(&schema, &repo).await;
+        let id = json!({ "id": task });
+        let token = register(&schema, "w1").await;
+        exec_as(&schema, &token, CLAIM, id.clone()).await;
+
+        move_task(&schema, &task, "TODO").await; // a person stops it
+
+        assert_eq!(holder(&schema, &task).await, Value::Null);
+        let last = journal(&schema, &task).await.pop().unwrap();
+        assert!(last.2.starts_with("Run stopped by you after"), "{}", last.2);
+        // Its next heartbeat is refused: that is how the worker learns to stop
+        let err = exec_err_as(&schema, &token, HEARTBEAT, id).await;
+        assert_eq!(err, "w1 does not hold a claim on this task");
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[sqlx::test]
+    async fn review_feedback_reaches_the_next_outside_worker(pool: PgPool) {
+        let (root, repo) = temp_repo().await;
+        let schema = schema(pool.clone());
+        let task = waiting_task(&schema, &repo).await;
+        let id = json!({ "id": task });
+        let token = register(&schema, "w1").await;
+        exec_as(&schema, &token, CLAIM, id.clone()).await;
+        exec_as(&schema, &token, "mutation($id: UUID!) { submitTask(taskId: $id) { id } }", id.clone()).await;
+
+        exec(
+            &schema,
+            "mutation($id: UUID!) { requestChanges(id: $id, feedback: \"be friendlier\") { id } }",
+            id.clone(),
+        )
+        .await;
+        // No agent is started; the task waits, and a restart leaves it alone
+        let (events, _) = broadcast::channel(16);
+        ledger::recover(&pool, &events).await.unwrap();
+        assert_eq!(get_task(&schema, &task).await["status"], "IN_PROGRESS");
+        assert_eq!(holder(&schema, &task).await, Value::Null);
+
+        let data = exec_as(&schema, &token, CLAIM, id).await;
+        assert_eq!(data["claimTask"]["runNumber"], 2);
+        assert_eq!(data["claimTask"]["feedback"], "be friendlier");
+        assert!(data["claimTask"]["journal"].as_str().unwrap().contains("[Human] be friendlier"));
+
         std::fs::remove_dir_all(root).unwrap();
     }
 }

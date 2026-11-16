@@ -108,7 +108,9 @@ pub async fn request_changes(
     let (task, entry) = tasks::transition(pool, id, TaskStatus::InProgress, JournalActor::Human).await?;
     let _ = events.send(BoardEvent::TaskUpdated(task.clone()));
     let _ = events.send(BoardEvent::Journal(entry));
-    agents.start(pool.clone(), events.clone(), task.clone(), Some(feedback.to_string()));
+    // A built-in agent starts again now; a task for an outside worker waits to be claimed.
+    // Either way the worker is given this feedback when it claims the task.
+    agents.dispatch(pool.clone(), events.clone(), task.clone());
     Ok(task)
 }
 

@@ -116,7 +116,10 @@ pub fn prompt(task: &Task, journal: &str, feedback: Option<&str>) -> String {
          - Make the changes directly in the files here. Do not run git: the board commits your \
          work when you finish.\n\
          - Keep a journal while you work. Write each entry on its own line, starting with \
-         `JOURNAL:`. Write your plan first, then every important decision and why you made it.\n\
+         `JOURNAL:` and then what kind of entry it is: `JOURNAL: PLAN: ...` first, then \
+         `JOURNAL: DECISION: ...` for every important choice and why you made it, \
+         `JOURNAL: PROGRESS: ...` when a step is done, `JOURNAL: BLOCKER: ...` if something \
+         stops you, and `JOURNAL: EVIDENCE: ...` for proof that the work is right.\n\
          - Finish with exactly one line starting with `JOURNAL: SUMMARY:` that tells the reviewer \
          what you changed.\n",
     );

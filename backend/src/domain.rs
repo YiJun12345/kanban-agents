@@ -46,6 +46,8 @@ pub enum AgentKind {
     Claude,
     Codex,
     Fake,
+    /// No agent is started by the board: any worker with a token can claim the task
+    External,
 }
 
 #[derive(SimpleObject, sqlx::FromRow, Clone, Debug)]
@@ -94,6 +96,30 @@ pub enum JournalKind {
     Error,
     Summary, // the agent's own report at the end of a run
     Merge,   // the task's branch was merged when it was approved
+    Checkpoint, // where the agent stands: what it did, what it intends, what comes next
+}
+
+/// What a note is about
+#[derive(Enum, sqlx::Type, Copy, Clone, Debug, PartialEq, Eq)]
+#[sqlx(type_name = "note_kind", rename_all = "snake_case")]
+pub enum NoteKind {
+    Plan,
+    Progress,
+    Blocker,
+    Decision,
+    Evidence,
+}
+
+impl NoteKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            NoteKind::Plan => "Plan",
+            NoteKind::Progress => "Progress",
+            NoteKind::Blocker => "Blocker",
+            NoteKind::Decision => "Decision",
+            NoteKind::Evidence => "Evidence",
+        }
+    }
 }
 
 #[derive(SimpleObject, sqlx::FromRow, Clone, Debug)]
@@ -105,10 +131,44 @@ pub struct JournalEntry {
     pub run_id: Option<Uuid>,
     pub actor: JournalActor,
     pub kind: JournalKind,
+    pub note_kind: Option<NoteKind>,
+    /// The worker that signed this entry, e.g. "worker-1"
+    pub author: Option<String>,
     pub message: String,
     #[graphql(skip)] // sqlx's Json type isn't a GraphQL type, so graphql.rs exposes it
     pub details: sqlx::types::Json<serde_json::Value>,
     pub created_at: DateTime<Utc>,
+}
+
+/// Anything that takes work from the board: the backend's own runners, or an outside
+/// agent that proves who it is with a token
+#[derive(SimpleObject, sqlx::FromRow, Clone, Debug)]
+#[graphql(complex)]
+pub struct Worker {
+    pub id: Uuid,
+    pub name: String,
+    #[graphql(skip)] // never leaves the backend
+    pub token_hash: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub last_seen_at: Option<DateTime<Utc>>,
+}
+
+impl Worker {
+    /// The backend's own runners have no token
+    pub fn is_builtin(&self) -> bool {
+        self.token_hash.is_none()
+    }
+}
+
+/// Who is working on a task right now. It only lasts while the worker keeps sending heartbeats.
+#[derive(SimpleObject, sqlx::FromRow, Clone, Debug)]
+#[graphql(complex)]
+pub struct Claim {
+    pub task_id: Uuid,
+    pub worker_id: Uuid,
+    pub run_id: Uuid,
+    pub claimed_at: DateTime<Utc>,
+    pub heartbeat_at: DateTime<Utc>,
 }
 
 #[derive(SimpleObject, sqlx::FromRow, Clone, Debug)]
