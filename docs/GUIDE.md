@@ -1,8 +1,12 @@
-# Study guide: journal, review flow, real agents and the new design
+# Study guide: journal, review flow, real agents, the new design, and the ledger
 
-This guide explains everything added on the `journal-review-agents` branch: what each feature
-does, where its code lives, why it is built that way, and how to try it. Read it top to bottom
-once, with the app running next to you, then use it as a reference.
+This guide explains everything added on the `journal-review-agents` and `agent-ledger`
+branches: what each feature does, where its code lives, why it is built that way, and how to
+try it. Read it top to bottom once, with the app running next to you, then use it as a reference.
+
+> **Two parts.** Sections 1 to 12 describe the first branch. [Section 13](#13-the-ledger-agents-take-work-themselves)
+> describes the ledger, which came after and changed how agents are run. Where an earlier
+> section is no longer exact, a note like this one points to section 13.
 
 **Contents**
 
@@ -18,6 +22,7 @@ once, with the app running next to you, then use it as a reference.
 10. [Using the real Claude agent](#10-using-the-real-claude-agent)
 11. [Questions George might ask](#11-questions-george-might-ask)
 12. [Exercises](#12-exercises)
+13. [The ledger: agents take work themselves](#13-the-ledger-agents-take-work-themselves)
 
 ---
 
@@ -36,7 +41,8 @@ once, with the app running next to you, then use it as a reference.
 | Logbook page | The whole project's journal, by day | [Logbook.tsx](../web/src/components/Logbook.tsx) |
 | New design | Paper, ink, tickets and stamps; light and dark | [index.css](../web/src/index.css) |
 
-Numbers: the backend has **36 tests** (it had 18) and the browser has **10 tests** (it had 4).
+Numbers after the first branch: **36** backend tests (there were 18) and **10** browser tests
+(there were 4). After the ledger: **42** and **11**.
 
 The work is in three commits. Reading them in order is a good way to study:
 
@@ -52,11 +58,11 @@ You are on a new branch, so `main` is untouched until you merge.
 
 ```bash
 cd ~/projects/kanban-agents
-git status                    # should say: On branch journal-review-agents
+git status                    # should say: On branch agent-ledger
 docker compose up -d          # Postgres (Docker Desktop must be running)
 
 # Terminal 1
-cd backend && cargo run       # applies 2 new migrations to your database
+cd backend && cargo run       # applies 3 new migrations to your database
 
 # Terminal 2
 cd web && npm install         # new: the fonts are npm packages
@@ -176,6 +182,10 @@ You typed most of this in Part 2a. In short:
 
 ### 5.2 Stopping an agent
 
+> **Changed by the ledger.** `Agents::start` is now `Agents::dispatch`, and the loop waits for
+> a third thing: a heartbeat being due. The oneshot channel and `select!` are still exactly
+> as described here. See [13.5](#135-the-built-in-runners-became-workers).
+
 **The problem.** The agent runs in a background task. The GraphQL mutation that wants to stop
 it is a *different* task. They need a way to talk.
 
@@ -243,8 +253,8 @@ move the card, because the person who stopped it has already put it in To Do.
   so the new rule had to be added there too. That test is there to stop rules being added by
   accident.
 - **Recovery.** If you stop the backend while an agent is working, the task stays "In
-  Progress" forever, because the agent died with the backend. `agent::recover` runs once at
-  startup (see [main.rs](../backend/src/main.rs)). It finds those tasks, writes "The backend
+  Progress" forever, because the agent died with the backend. `ledger::recover` (it was
+  `agent::recover` before the ledger) runs once at startup (see [main.rs](../backend/src/main.rs)). It finds those tasks, writes "The backend
   restarted while the agent was running" in their journal, and moves them to Failed, where
   you can retry them.
 
@@ -476,7 +486,7 @@ page shows the new-project form instead of an empty board.
 
 ## 7. The tests and what each one proves
 
-### Backend (`cargo test`, 36 tests)
+### Backend (`cargo test`, 42 tests; the ledger's are in [13.8](#138-the-tests))
 
 | Test | What it proves |
 |---|---|
@@ -510,7 +520,7 @@ only works because the settings are a value (`ClaudeConfig`) passed into the cod
 from the environment deep inside it. Tests can then build their own. That is why
 `ClaudeConfig::from_env()` is called once, in `main.rs`, and nowhere else.
 
-### Browser (`npm run test:e2e`, 10 tests)
+### Browser (`npm run test:e2e`, 11 tests)
 
 The tests in [board.spec.ts](../web/e2e/board.spec.ts) drive a real browser. Two details:
 
@@ -648,3 +658,310 @@ Small changes that make you read the code. Each has a hint.
 6. **Write the missing test.** Nothing tests that approving a task whose agent changed no
    files works. *Hint: copy `approving_merges_the_branch_and_cleans_up`. What should
    `mergeCommit` be? What does the journal say?*
+
+---
+
+## 13. The ledger: agents take work themselves
+
+### 13.1 The idea
+
+Until now the board was the boss of the agents: *it* started an agent for a task, and only the
+two agents it knows about (fake and Claude Code) could exist.
+
+The ledger turns that around. The board becomes a **work ledger**: a place where work is
+offered, taken, reported on and handed in. An agent is now a **worker** that comes to the
+board, says who it is, and takes a task. The board no longer needs to know what kind of
+program the worker is.
+
+| | Before | With the ledger |
+|---|---|---|
+| Who starts the work | The backend starts an agent | A worker **claims** a task |
+| Which agents can exist | Fake and Claude Code | Anything that can run a command |
+| How the board knows an agent is alive | It owns the process | The worker sends **heartbeats** |
+| How an agent writes the journal | The backend reads its printed lines | The worker calls the API (printed lines still work) |
+| Who is "the agent" in the journal | Just "Agent" | A named worker, e.g. `claude-laptop` |
+
+Nothing was lost: you still drag cards, the fake agent still runs by itself, review and merge
+are unchanged. The built-in agents simply became workers like any other.
+
+### 13.2 The words
+
+- **Worker**: anything that takes tasks. It has a name. An outside worker also has a token.
+- **Claim**: "this worker is working on this task right now". One per task.
+- **Heartbeat**: the worker saying "still working". A claim with no heartbeat for 60 seconds
+  **expires**.
+- **Run**: one attempt at a task, from claim to end. You already had runs.
+- **External task**: a task whose agent is set to *External worker (CLI)*. The board starts
+  nothing for it; it waits in In Progress until a worker claims it.
+
+### 13.3 Life of a claim
+
+```mermaid
+stateDiagram-v2
+    [*] --> Waiting: card moved to In Progress
+    Waiting --> Claimed: worker claims (run + worktree are created)
+    Claimed --> Claimed: heartbeat, note, checkpoint, log
+    Claimed --> InReview: submit (board commits the worktree)
+    Claimed --> Failed: fail, or no heartbeat for 60s
+    Claimed --> Waiting: release (worker gives it back)
+    Claimed --> ToDo: a person takes it back
+```
+
+"Waiting" and "Claimed" are both the In Progress column. The card tells them apart: it says
+*waiting for a worker*, or shows the worker's name.
+
+### 13.4 The database: two tables and one clever key
+
+The migration `…_agent_ledger.sql` adds `workers` and `claims`.
+
+```sql
+CREATE TABLE claims (
+    task_id      UUID PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+    worker_id    UUID NOT NULL REFERENCES workers(id),
+    run_id       UUID NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    claimed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+```
+
+The important word is `PRIMARY KEY` on `task_id`. A primary key must be unique, so **the
+database itself refuses a second claim on the same task.** We do not check "is it free?" and
+then insert, because two workers could both see "free" in the same instant. We just try to
+insert:
+
+```rust
+// ledger.rs, in claim()
+"INSERT INTO claims (task_id, worker_id, run_id) VALUES ($1, $2, $3)
+ ON CONFLICT (task_id) DO NOTHING RETURNING *"
+```
+
+If a row comes back, the task is ours. If nothing comes back, someone else has it. This is
+the same lesson as the row lock in `tasks::transition`: **let the database decide races,
+because it is the only one that sees every request.**
+
+The run and the claim are inserted in one transaction. If the claim fails, the function
+returns early, the transaction is dropped, and the run row disappears with it.
+
+**Tokens.** `ledger::register` creates a random token (`kbt_` plus two random UUIDs) and
+returns it once. The table stores only its SHA-256 hash. So even someone who reads the
+database cannot use a worker's token. To check a request, we hash the token it sent and look
+for that hash. The built-in workers have no token at all (`token_hash` is NULL), so nobody
+can pretend to be them from outside.
+
+### 13.5 The built-in runners became workers
+
+All the ledger's rules are functions in [ledger.rs](../backend/src/ledger.rs):
+
+| Function | What it does |
+|---|---|
+| `register`, `authenticate`, `builtin` | create a worker; find the worker for a token; the backend's own worker |
+| `claim`, `claim_next` | take a task: creates the run, the claim and the worktree; returns an `Assignment` |
+| `heartbeat` | refresh the claim; an error means the claim is gone |
+| `note`, `checkpoint`, `log_line` | write in the journal or the raw output, as the worker |
+| `submit` | commit the worktree, end the run, move to In Review |
+| `fail`, `release` | end the run as failed, or give the task back |
+| `revoke` | the board takes the task away (a person stopped it) |
+| `expire` | end every claim that has been silent too long |
+| `recover` | at startup, fail what the built-in runners were doing |
+
+Every function that needs a claim starts with `held(pool, worker, task_id)`, which returns the
+claim or the error "`w1` does not hold a claim on this task". That one check is the whole
+permission system for workers.
+
+[agent.rs](../backend/src/agent.rs) got much shorter, because it no longer saves anything
+itself. Its `run` is now just: claim, run the program, report how it ended.
+
+```rust
+let worker = ledger::builtin(pool, task.agent).await?;
+let job = ledger::claim(pool, events, &worker, task.id).await?;
+
+match work(pool, events, claude, &worker, &job, stop).await {
+    Ok(Outcome::Exited(Some(0))) => { ledger::submit(pool, events, &worker, task.id, None).await?; }
+    Ok(Outcome::Exited(code))    => { ledger::fail(pool, events, &worker, task.id, None, code).await?; }
+    // …
+}
+```
+
+This matters more than it looks. The fake agent and an outside worker now go through **the
+same code** for everything that counts (commit, journal, status). There is one set of rules,
+and the tests for outside workers also protect the built-in path.
+
+The read loop waits for three things now:
+
+```rust
+tokio::select! {
+    line = lines.next_line() => { /* pass the line to ledger::log_line */ }
+    _ = heartbeat.tick() => {
+        // A refused heartbeat means the claim is gone: stop working
+        if ledger::heartbeat(pool, events, worker, task.id).await.is_err() {
+            child.kill().await?;
+            return Ok(Outcome::Stopped);
+        }
+    }
+    _ = &mut stop => { child.kill().await?; return Ok(Outcome::Stopped); }
+}
+```
+
+**Ending a run exactly once.** A run can be ended by the worker (submit), by a person (stop)
+or by the sweeper (expiry), possibly at the same moment. `ledger::end` handles that with one
+statement: it deletes the claim first and checks that a row was really deleted.
+
+```rust
+let dropped = sqlx::query("DELETE FROM claims WHERE task_id = $1 AND run_id = $2") …
+if dropped.rows_affected() == 0 {
+    anyhow::bail!("this run has already ended");
+}
+```
+
+Whoever deletes the claim "wins" and writes the ending. Everyone else is told the run already
+ended. Again the database settles the race.
+
+**The sweeper.** [main.rs](../backend/src/main.rs) starts a small loop that calls
+`ledger::expire` every 10 seconds. A claim silent for longer than `LEASE` (60 seconds) gets an
+ERROR entry "No heartbeat from w1 for 60s, so its claim expired" and its task moves to
+Failed, where you can retry it.
+
+**Restarts.** `ledger::recover` fails only the tasks of the built-in runners, because those
+died with the backend. An outside worker is a separate program: its claim survives a backend
+restart and it carries on.
+
+### 13.6 How a worker talks to the board
+
+**The API.** Workers use ordinary GraphQL mutations: `claimNextTask`, `heartbeat`,
+`addWorkerNote`, `checkpoint`, `appendLog`, `submitTask`, `failTask`, `releaseTask`. They are
+at the bottom of `MutationRoot` in [graphql.rs](../backend/src/graphql.rs). Each begins with
+`let worker = caller(ctx).await?;`.
+
+**The token travels in a header.** [main.rs](../backend/src/main.rs) now has its own small
+handler instead of the ready-made one, so it can read the request's headers:
+
+```rust
+async fn run_graphql(State(schema): State<AppSchema>, headers: HeaderMap, request: GraphQLRequest)
+    -> GraphQLResponse
+{
+    let token = headers.get("authorization") /* … strip "Bearer " … */;
+    schema.execute(request.into_inner().data(Bearer(token))).await.into()
+}
+```
+
+`.data(Bearer(token))` attaches the token to *this one request*. Resolvers that need a worker
+call `caller(ctx)`, which reads it back with `ctx.data_opt::<Bearer>()`. Resolvers for people
+never look at it. You have used schema-wide data before (the pool); this is the per-request
+version of the same idea.
+
+**The CLI.** [cli/src/main.rs](../cli/src/main.rs) is a second Rust program, about 300 lines.
+Every command sends one GraphQL request and prints the answer as JSON, so an agent or a shell
+script can read it. Three things to notice:
+
+- `clap` builds the command-line parser from an enum. Each variant is a command, and the `///`
+  comments become the `--help` text.
+- `call()` is the only function that talks to the network. It adds the token from
+  `KANBAN_TOKEN`, and turns a GraphQL error into a normal Rust error, so the server's own
+  message is what the user sees.
+- `kanban work -- <command>` wraps *any* program as an agent. It claims a task, runs the
+  command in the worktree, and uses a second **thread** to send heartbeats while the main
+  thread reads the program's output. If a heartbeat is refused, that thread kills the program.
+  This is the same shape as the backend's `select!` loop, written with threads instead of
+  async, because a small CLI does not need an async runtime.
+
+**Agents that can only print.** `ledger::log_line` checks every line for the `JOURNAL:`
+prefix and files it in the journal. The kind can now be given in the line:
+
+```
+JOURNAL: PLAN: add the toggle to the header
+JOURNAL: DECISION: store the choice in localStorage, so it survives a reload
+JOURNAL: SUMMARY: added a dark mode toggle
+```
+
+So there are two ways to keep a journal, and both end in the same function (`ledger::note`):
+call the API (`kanban note --kind plan "…"`), or print a line.
+
+### 13.7 Try it
+
+Start the backend and frontend as usual, then in a third terminal:
+
+```bash
+cd ~/projects/kanban-agents
+cargo build --manifest-path cli/Cargo.toml
+export PATH="$PWD/cli/target/debug:$PATH"
+```
+
+1. In the browser, open **Workers**, type a name, press **Create token**, and copy the
+   `export KANBAN_TOKEN=…` line into the terminal.
+2. On the board, choose **External worker (CLI)** in the agent menu, add a task, and drag it
+   to In Progress. The card says *waiting for a worker*.
+3. In the terminal:
+   ```bash
+   kanban whoami
+   kanban next                 # the card now shows your worker's name
+   ```
+   Copy the task `id` and the `worktreePath` from the answer.
+4. Report and work:
+   ```bash
+   kanban note <id> --kind plan "write hello.txt"
+   echo hello > <worktreePath>/hello.txt
+   kanban submit <id> --summary "Added hello.txt"
+   ```
+   The card moves to In Review. Open it: your notes are signed with the worker's name.
+5. See expiry: add another External task, drag it to In Progress, run `kanban next`, then do
+   nothing. After about 30 seconds the card says *quiet*. After a little over a minute it
+   moves to Failed with "No heartbeat…" in its journal.
+6. See stopping: claim a task, then drag its card back to To Do. Now `kanban hb <id>` answers
+   "… does not hold a claim on this task".
+7. The short way: `kanban work -- sh examples/external-agent.sh` does not fit (that script
+   claims by itself), so run the script directly: `sh examples/external-agent.sh`. Then try
+   `kanban work -- sh -c 'echo "JOURNAL: PLAN: $KANBAN_TASK_PROMPT"; date > stamp.txt'`.
+
+### 13.8 The tests
+
+| Test | What it proves |
+|---|---|
+| `outside_worker_does_a_task_from_claim_to_review` | The whole path through the API: nothing starts by itself, claim, notes, checkpoint, log, submit, commit message, signed entries |
+| `a_task_has_one_worker_at_a_time` | The second claim is refused; the loser can do nothing; after a release the task can be claimed again as run #2 |
+| `worker_calls_need_a_token` | No token and a wrong token are refused; names are checked and unique |
+| `a_silent_worker_loses_its_claim` | `expire` with a normal lease does nothing; with a lease of zero it fails the task and says why |
+| `stopping_takes_the_task_away_from_an_outside_worker` | After a person's stop, the worker's heartbeat is refused |
+| `review_feedback_reaches_the_next_outside_worker` | "Request changes" starts nothing; the next claim carries the feedback; a restart leaves outside tasks alone |
+| `ledger::tokens_are_stored_as_sha256` | The hash function, against a known value |
+| (browser) `an outside worker takes a task with the kanban CLI` | The real `kanban` binary and the real UI together |
+
+A trick worth copying is in `a_silent_worker_loses_its_claim`. Waiting 60 seconds in a test
+would be slow, so `expire` takes the lease as a parameter. Production passes 60 seconds; the
+test passes zero. **If time makes something hard to test, make the time an input.**
+
+### 13.9 The UI
+
+- **Cards** in In Progress show the worker's name with a spinner, *quiet 45s* in amber when
+  heartbeats have stopped for over 30 seconds, or *waiting for a worker*. This is the `Holder`
+  component in [TaskCard.tsx](../web/src/components/TaskCard.tsx).
+- **The timeline** shows the worker's name instead of "Agent", a small tag for the note's
+  kind, and for a checkpoint its *Intent* and *Next* lines.
+- **Workers page** ([Workers.tsx](../web/src/components/Workers.tsx)) lists workers and what
+  each holds, and creates tokens. The token is kept only in the component's state: reload the
+  page and it is gone, which matches "shown once".
+
+### 13.10 What is still missing
+
+Said plainly, so you can answer if asked:
+
+- **People have no login.** Anyone who can open the board can move cards and create workers.
+  Tokens identify workers only. That is fine for a tool on your own machine and not for a
+  shared server.
+- **A token does not expire** and cannot be revoked in the UI yet.
+- **One claim, one task.** There is no limit on how many tasks a worker may hold, and no
+  priority or dependency order in `claim_next`: it takes the task that has waited longest.
+- **A worker on another computer** can claim a task, but the worktree path it gets is a folder
+  on the backend's computer. Outside workers must run on the same machine for now.
+
+### 13.11 More exercises
+
+7. **Revoke a worker.** Add a `removeWorker` mutation and a button. *Hint: what should happen
+   to a claim it holds? Look at `revoke`.*
+8. **A limit per worker.** Refuse a claim when the worker already holds two tasks. *Hint: one
+   `count(*)` at the top of `claim`, and one new test next to `a_task_has_one_worker_at_a_time`.*
+9. **Priority.** Add a `priority` column to tasks and make `claim_next` take the highest
+   first. *Hint: the `ORDER BY` in `claim_next`, a new migration, and a field in the task form.*
+10. **`kanban watch`.** A CLI command that prints a task's journal entries as they arrive.
+    *Hint: the simplest version polls `show` every two seconds and prints entries with a
+    higher `seq` than the last one it printed.*
+
