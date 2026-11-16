@@ -14,20 +14,34 @@ import type { TypedDocumentNode as DocumentNode } from '@graphql-typed-document-
  * Learn more about it here: https://the-guild.dev/graphql/codegen/plugins/presets/preset-client#reducing-bundle-size
  */
 type Documents = {
-    "\n  query Board {\n    projects {\n      id\n      name\n      tasks {\n        id\n        title\n        prompt\n        status\n        agent\n        updatedAt\n      }\n    }\n  }\n": typeof types.BoardDocument,
-    "\n  mutation MoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n": typeof types.MoveTaskDocument,
+    "\n  query Board {\n    projects {\n      id\n      name\n      repoPath\n      defaultBranch\n      tasks {\n        id\n        title\n        prompt\n        status\n        agent\n        updatedAt\n        headline {\n          actor\n          kind\n          message\n        }\n      }\n    }\n    agents {\n      kind\n      label\n      ready\n      reason\n    }\n  }\n": typeof types.BoardDocument,
     "\n  subscription TaskUpdated($projectId: UUID!) {\n    taskUpdated(projectId: $projectId) {\n      id\n    }\n  }\n": typeof types.TaskUpdatedDocument,
-    "\n  query TaskLogs($id: UUID!) {\n    task(id: $id) {\n      id\n      title\n      status\n      prompt\n      agent\n      branch\n      updatedAt\n      diff\n      logs {\n        runId\n        seq\n        content\n      }\n    }\n  }\n": typeof types.TaskLogsDocument,
+    "\n  mutation MoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n": typeof types.MoveTaskDocument,
+    "\n  mutation AddJournalNote($taskId: UUID!, $message: String!) {\n    addJournalNote(taskId: $taskId, message: $message) {\n      id\n    }\n  }\n": typeof types.AddJournalNoteDocument,
+    "\n  query Logbook($projectId: UUID!) {\n    project(id: $projectId) {\n      id\n      journal(limit: 200) {\n        id\n        seq\n        runId\n        actor\n        kind\n        message\n        details\n        createdAt\n        task {\n          id\n          title\n        }\n      }\n    }\n  }\n": typeof types.LogbookDocument,
+    "\n  mutation CreateTask($projectId: UUID!, $title: String!, $prompt: String!, $agent: AgentKind) {\n    createTask(projectId: $projectId, title: $title, prompt: $prompt, agent: $agent) {\n      id\n    }\n  }\n": typeof types.CreateTaskDocument,
+    "\n  mutation CreateProject($name: String!, $repoPath: String!) {\n    createProject(name: $name, repoPath: $repoPath) {\n      id\n    }\n  }\n": typeof types.CreateProjectDocument,
+    "\n  mutation PanelMoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n": typeof types.PanelMoveTaskDocument,
+    "\n  mutation ApproveTask($id: UUID!) {\n    approveTask(id: $id) {\n      id\n      status\n      mergeCommit\n    }\n  }\n": typeof types.ApproveTaskDocument,
+    "\n  mutation RequestChanges($id: UUID!, $feedback: String!) {\n    requestChanges(id: $id, feedback: $feedback) {\n      id\n      status\n    }\n  }\n": typeof types.RequestChangesDocument,
+    "\n  query TaskPanel($id: UUID!) {\n    task(id: $id) {\n      id\n      title\n      status\n      prompt\n      agent\n      branch\n      mergeCommit\n      updatedAt\n      diff\n      logs {\n        runId\n        seq\n        content\n      }\n      journal {\n        id\n        seq\n        runId\n        actor\n        kind\n        message\n        details\n        createdAt\n      }\n    }\n  }\n": typeof types.TaskPanelDocument,
     "\n  subscription TaskLogsLive($taskId: UUID!) {\n    taskLogs(taskId: $taskId) {\n      runId\n      seq\n      content\n    }\n  }\n": typeof types.TaskLogsLiveDocument,
-    "\n  mutation CreateTask($projectId: UUID!, $title: String!, $prompt: String!) {\n    createTask(projectId: $projectId, title: $title, prompt: $prompt) {\n      id\n    }\n  }\n": typeof types.CreateTaskDocument,
+    "\n  subscription JournalLive($taskId: UUID!) {\n    journalAdded(taskId: $taskId) {\n      id\n      seq\n      runId\n      actor\n      kind\n      message\n      details\n      createdAt\n    }\n  }\n": typeof types.JournalLiveDocument,
 };
 const documents: Documents = {
-    "\n  query Board {\n    projects {\n      id\n      name\n      tasks {\n        id\n        title\n        prompt\n        status\n        agent\n        updatedAt\n      }\n    }\n  }\n": types.BoardDocument,
-    "\n  mutation MoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n": types.MoveTaskDocument,
+    "\n  query Board {\n    projects {\n      id\n      name\n      repoPath\n      defaultBranch\n      tasks {\n        id\n        title\n        prompt\n        status\n        agent\n        updatedAt\n        headline {\n          actor\n          kind\n          message\n        }\n      }\n    }\n    agents {\n      kind\n      label\n      ready\n      reason\n    }\n  }\n": types.BoardDocument,
     "\n  subscription TaskUpdated($projectId: UUID!) {\n    taskUpdated(projectId: $projectId) {\n      id\n    }\n  }\n": types.TaskUpdatedDocument,
-    "\n  query TaskLogs($id: UUID!) {\n    task(id: $id) {\n      id\n      title\n      status\n      prompt\n      agent\n      branch\n      updatedAt\n      diff\n      logs {\n        runId\n        seq\n        content\n      }\n    }\n  }\n": types.TaskLogsDocument,
+    "\n  mutation MoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n": types.MoveTaskDocument,
+    "\n  mutation AddJournalNote($taskId: UUID!, $message: String!) {\n    addJournalNote(taskId: $taskId, message: $message) {\n      id\n    }\n  }\n": types.AddJournalNoteDocument,
+    "\n  query Logbook($projectId: UUID!) {\n    project(id: $projectId) {\n      id\n      journal(limit: 200) {\n        id\n        seq\n        runId\n        actor\n        kind\n        message\n        details\n        createdAt\n        task {\n          id\n          title\n        }\n      }\n    }\n  }\n": types.LogbookDocument,
+    "\n  mutation CreateTask($projectId: UUID!, $title: String!, $prompt: String!, $agent: AgentKind) {\n    createTask(projectId: $projectId, title: $title, prompt: $prompt, agent: $agent) {\n      id\n    }\n  }\n": types.CreateTaskDocument,
+    "\n  mutation CreateProject($name: String!, $repoPath: String!) {\n    createProject(name: $name, repoPath: $repoPath) {\n      id\n    }\n  }\n": types.CreateProjectDocument,
+    "\n  mutation PanelMoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n": types.PanelMoveTaskDocument,
+    "\n  mutation ApproveTask($id: UUID!) {\n    approveTask(id: $id) {\n      id\n      status\n      mergeCommit\n    }\n  }\n": types.ApproveTaskDocument,
+    "\n  mutation RequestChanges($id: UUID!, $feedback: String!) {\n    requestChanges(id: $id, feedback: $feedback) {\n      id\n      status\n    }\n  }\n": types.RequestChangesDocument,
+    "\n  query TaskPanel($id: UUID!) {\n    task(id: $id) {\n      id\n      title\n      status\n      prompt\n      agent\n      branch\n      mergeCommit\n      updatedAt\n      diff\n      logs {\n        runId\n        seq\n        content\n      }\n      journal {\n        id\n        seq\n        runId\n        actor\n        kind\n        message\n        details\n        createdAt\n      }\n    }\n  }\n": types.TaskPanelDocument,
     "\n  subscription TaskLogsLive($taskId: UUID!) {\n    taskLogs(taskId: $taskId) {\n      runId\n      seq\n      content\n    }\n  }\n": types.TaskLogsLiveDocument,
-    "\n  mutation CreateTask($projectId: UUID!, $title: String!, $prompt: String!) {\n    createTask(projectId: $projectId, title: $title, prompt: $prompt) {\n      id\n    }\n  }\n": types.CreateTaskDocument,
+    "\n  subscription JournalLive($taskId: UUID!) {\n    journalAdded(taskId: $taskId) {\n      id\n      seq\n      runId\n      actor\n      kind\n      message\n      details\n      createdAt\n    }\n  }\n": types.JournalLiveDocument,
 };
 
 /**
@@ -47,11 +61,7 @@ export function graphql(source: string): unknown;
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query Board {\n    projects {\n      id\n      name\n      tasks {\n        id\n        title\n        prompt\n        status\n        agent\n        updatedAt\n      }\n    }\n  }\n"): (typeof documents)["\n  query Board {\n    projects {\n      id\n      name\n      tasks {\n        id\n        title\n        prompt\n        status\n        agent\n        updatedAt\n      }\n    }\n  }\n"];
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n  mutation MoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n"): (typeof documents)["\n  mutation MoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n"];
+export function graphql(source: "\n  query Board {\n    projects {\n      id\n      name\n      repoPath\n      defaultBranch\n      tasks {\n        id\n        title\n        prompt\n        status\n        agent\n        updatedAt\n        headline {\n          actor\n          kind\n          message\n        }\n      }\n    }\n    agents {\n      kind\n      label\n      ready\n      reason\n    }\n  }\n"): (typeof documents)["\n  query Board {\n    projects {\n      id\n      name\n      repoPath\n      defaultBranch\n      tasks {\n        id\n        title\n        prompt\n        status\n        agent\n        updatedAt\n        headline {\n          actor\n          kind\n          message\n        }\n      }\n    }\n    agents {\n      kind\n      label\n      ready\n      reason\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -59,7 +69,39 @@ export function graphql(source: "\n  subscription TaskUpdated($projectId: UUID!)
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query TaskLogs($id: UUID!) {\n    task(id: $id) {\n      id\n      title\n      status\n      prompt\n      agent\n      branch\n      updatedAt\n      diff\n      logs {\n        runId\n        seq\n        content\n      }\n    }\n  }\n"): (typeof documents)["\n  query TaskLogs($id: UUID!) {\n    task(id: $id) {\n      id\n      title\n      status\n      prompt\n      agent\n      branch\n      updatedAt\n      diff\n      logs {\n        runId\n        seq\n        content\n      }\n    }\n  }\n"];
+export function graphql(source: "\n  mutation MoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n"): (typeof documents)["\n  mutation MoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation AddJournalNote($taskId: UUID!, $message: String!) {\n    addJournalNote(taskId: $taskId, message: $message) {\n      id\n    }\n  }\n"): (typeof documents)["\n  mutation AddJournalNote($taskId: UUID!, $message: String!) {\n    addJournalNote(taskId: $taskId, message: $message) {\n      id\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  query Logbook($projectId: UUID!) {\n    project(id: $projectId) {\n      id\n      journal(limit: 200) {\n        id\n        seq\n        runId\n        actor\n        kind\n        message\n        details\n        createdAt\n        task {\n          id\n          title\n        }\n      }\n    }\n  }\n"): (typeof documents)["\n  query Logbook($projectId: UUID!) {\n    project(id: $projectId) {\n      id\n      journal(limit: 200) {\n        id\n        seq\n        runId\n        actor\n        kind\n        message\n        details\n        createdAt\n        task {\n          id\n          title\n        }\n      }\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation CreateTask($projectId: UUID!, $title: String!, $prompt: String!, $agent: AgentKind) {\n    createTask(projectId: $projectId, title: $title, prompt: $prompt, agent: $agent) {\n      id\n    }\n  }\n"): (typeof documents)["\n  mutation CreateTask($projectId: UUID!, $title: String!, $prompt: String!, $agent: AgentKind) {\n    createTask(projectId: $projectId, title: $title, prompt: $prompt, agent: $agent) {\n      id\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation CreateProject($name: String!, $repoPath: String!) {\n    createProject(name: $name, repoPath: $repoPath) {\n      id\n    }\n  }\n"): (typeof documents)["\n  mutation CreateProject($name: String!, $repoPath: String!) {\n    createProject(name: $name, repoPath: $repoPath) {\n      id\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation PanelMoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n"): (typeof documents)["\n  mutation PanelMoveTask($id: UUID!, $status: TaskStatus!) {\n    moveTask(id: $id, status: $status) {\n      id\n      status\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation ApproveTask($id: UUID!) {\n    approveTask(id: $id) {\n      id\n      status\n      mergeCommit\n    }\n  }\n"): (typeof documents)["\n  mutation ApproveTask($id: UUID!) {\n    approveTask(id: $id) {\n      id\n      status\n      mergeCommit\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation RequestChanges($id: UUID!, $feedback: String!) {\n    requestChanges(id: $id, feedback: $feedback) {\n      id\n      status\n    }\n  }\n"): (typeof documents)["\n  mutation RequestChanges($id: UUID!, $feedback: String!) {\n    requestChanges(id: $id, feedback: $feedback) {\n      id\n      status\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  query TaskPanel($id: UUID!) {\n    task(id: $id) {\n      id\n      title\n      status\n      prompt\n      agent\n      branch\n      mergeCommit\n      updatedAt\n      diff\n      logs {\n        runId\n        seq\n        content\n      }\n      journal {\n        id\n        seq\n        runId\n        actor\n        kind\n        message\n        details\n        createdAt\n      }\n    }\n  }\n"): (typeof documents)["\n  query TaskPanel($id: UUID!) {\n    task(id: $id) {\n      id\n      title\n      status\n      prompt\n      agent\n      branch\n      mergeCommit\n      updatedAt\n      diff\n      logs {\n        runId\n        seq\n        content\n      }\n      journal {\n        id\n        seq\n        runId\n        actor\n        kind\n        message\n        details\n        createdAt\n      }\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
@@ -67,7 +109,7 @@ export function graphql(source: "\n  subscription TaskLogsLive($taskId: UUID!) {
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  mutation CreateTask($projectId: UUID!, $title: String!, $prompt: String!) {\n    createTask(projectId: $projectId, title: $title, prompt: $prompt) {\n      id\n    }\n  }\n"): (typeof documents)["\n  mutation CreateTask($projectId: UUID!, $title: String!, $prompt: String!) {\n    createTask(projectId: $projectId, title: $title, prompt: $prompt) {\n      id\n    }\n  }\n"];
+export function graphql(source: "\n  subscription JournalLive($taskId: UUID!) {\n    journalAdded(taskId: $taskId) {\n      id\n      seq\n      runId\n      actor\n      kind\n      message\n      details\n      createdAt\n    }\n  }\n"): (typeof documents)["\n  subscription JournalLive($taskId: UUID!) {\n    journalAdded(taskId: $taskId) {\n      id\n      seq\n      runId\n      actor\n      kind\n      message\n      details\n      createdAt\n    }\n  }\n"];
 
 export function graphql(source: string) {
   return (documents as any)[source] ?? {};

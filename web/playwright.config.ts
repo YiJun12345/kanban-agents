@@ -18,7 +18,9 @@ export default defineConfig({
       // Wipe and re-create the e2e database, then start the backend on it
       command: 'sqlx database reset -y && cargo run',
       cwd: '../backend',
-      env: { DATABASE_URL: E2E_DATABASE_URL, PORT: String(BACKEND_PORT) },
+      // An empty key keeps the Claude agent off here, even if your backend/.env has one:
+      // the tests must never start a real (paid) agent
+      env: { DATABASE_URL: E2E_DATABASE_URL, PORT: String(BACKEND_PORT), KANBAN_ANTHROPIC_API_KEY: '' },
       url: `${BACKEND_URL}/graphql`,
       timeout: 180_000, // the first cargo build can be slow
       reuseExistingServer: false,

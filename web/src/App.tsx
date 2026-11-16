@@ -1,18 +1,21 @@
 import { useMemo, useState } from 'react'
-import { DndContext, PointerSensor, useSensor, useSensors, type DragEndEvent } from '@dnd-kit/core'
-import { useMutation, useQuery, useSubscription } from 'urql'
-import { Column } from './components/Column'
-import { LogPanel } from './components/LogPanel'
+import { useQuery, useSubscription } from 'urql'
+import { Board } from './components/Board'
+import { Icon } from './components/Icon'
+import { Logbook } from './components/Logbook'
 import { NewTaskForm } from './components/NewTaskForm'
-import { TaskCard } from './components/TaskCard'
+import { NewProjectForm, ProjectSwitcher } from './components/ProjectSwitcher'
+import { TaskPanel } from './components/TaskPanel'
 import { graphql } from './gql'
-import type { TaskStatus } from './gql/graphql'
+import { useRefetchOnTick } from './useRefetchOnTick'
 
 const BoardQuery = graphql(`
   query Board {
     projects {
       id
       name
+      repoPath
+      defaultBranch
       tasks {
         id
         title
@@ -20,16 +23,18 @@ const BoardQuery = graphql(`
         status
         agent
         updatedAt
+        headline {
+          actor
+          kind
+          message
+        }
       }
     }
-  }
-`)
-
-const MoveTaskMutation = graphql(`
-  mutation MoveTask($id: UUID!, $status: TaskStatus!) {
-    moveTask(id: $id, status: $status) {
-      id
-      status
+    agents {
+      kind
+      label
+      ready
+      reason
     }
   }
 `)
@@ -42,66 +47,99 @@ const TaskUpdatedSubscription = graphql(`
   }
 `)
 
-const COLUMNS: { status: TaskStatus; label: string }[] = [
-  { status: 'TODO', label: 'To Do' },
-  { status: 'IN_PROGRESS', label: 'In Progress' },
-  { status: 'IN_REVIEW', label: 'In Review' },
-  { status: 'DONE', label: 'Done' },
-  { status: 'FAILED', label: 'Failed' },
-]
+type View = 'board' | 'logbook'
+
+// Remember the chosen project between visits (localStorage can be unavailable, e.g. private mode)
+const PROJECT_KEY = 'kanban.project'
+function savedProject() {
+  try {
+    return localStorage.getItem(PROJECT_KEY)
+  } catch {
+    return null
+  }
+}
 
 export default function App() {
-  // additionalTypenames: refetch this query whenever a mutation returns a Task
-  const context = useMemo(() => ({ additionalTypenames: ['Task'] }), [])
-  const [{ data, fetching, error }] = useQuery({ query: BoardQuery, context })
-  const [, moveTask] = useMutation(MoveTaskMutation)
-  const [moveError, setMoveError] = useState<string | null>(null)
+  // additionalTypenames: refetch this query whenever a mutation returns a Task or a Project
+  const context = useMemo(() => ({ additionalTypenames: ['Task', 'Project'] }), [])
+  const [{ data, fetching, stale, error }, refetch] = useQuery({ query: BoardQuery, context })
+  const [projectId, setProjectId] = useState<string | null>(savedProject)
+  const [view, setView] = useState<View>('board')
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [moveError, setMoveError] = useState<string | null>(null)
 
-  // Live updates: whenever a task changes on the server, refetch the board.
-  // additionalTypenames tells urql's cache "this event affects Task data".
-  const projectId = data?.projects[0]?.id
-  useSubscription({
-    query: TaskUpdatedSubscription,
-    variables: { projectId: projectId ?? '' },
-    pause: !projectId, // wait until we know which project to watch
-    context,
-  })
+  // The chosen project; otherwise the first one that has tasks, otherwise the first one
+  const projects = data?.projects ?? []
+  const project =
+    projects.find((p) => p.id === projectId) ?? projects.find((p) => p.tasks.length > 0) ?? projects[0]
 
+  // Live updates: the server tells us whenever a task in this project changes.
+  // We only count the events; `tick` going up makes every query on the page refetch.
+  const [live] = useSubscription(
+    {
+      query: TaskUpdatedSubscription,
+      variables: { projectId: project?.id ?? '' },
+      pause: !project, // wait until we know which project to watch
+    },
+    (count: number = 0) => count + 1,
+  )
+  const tick = live.data ?? 0
+  useRefetchOnTick(tick, fetching || stale, refetch)
 
-  // Only start a drag after the pointer moves 5px, so a plain click isn't a drag
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
+  function chooseProject(id: string) {
+    setProjectId(id)
+    setSelectedId(null)
+    try {
+      localStorage.setItem(PROJECT_KEY, id)
+    } catch {
+      // not being able to remember the choice is fine
+    }
+  }
 
   if (fetching && !data) return <p className="message">Loading…</p>
   if (error) return <p className="message error">Error: {error.message}</p>
 
-  const project = data?.projects[0]
-  if (!project) return <p className="message">No project yet. Create one in GraphiQL first.</p>
-
-  async function handleDragEnd({ active, over }: DragEndEvent) {
-    if (!over || !project) return
-    const task = project.tasks.find((t) => t.id === active.id)
-    const status = over.id as TaskStatus
-    if (!task || task.status === status) return
-
-    const res = await moveTask({ id: task.id, status })
-    // Show the backend's rule error, e.g. "cannot move task from Todo to Done"
-    setMoveError(res.error ? (res.error.graphQLErrors[0]?.message ?? res.error.message) : null)
+  if (!project) {
+    return (
+      <div className="welcome">
+        <h1>Kanban Agents</h1>
+        <p className="lede">
+          A board where the team members are AI coding agents. Start by pointing it at a git repository.
+        </p>
+        <NewProjectForm onCreated={chooseProject} />
+      </div>
+    )
   }
 
   const running = project.tasks.filter((t) => t.status === 'IN_PROGRESS').length
+  const waiting = project.tasks.filter((t) => t.status === 'IN_REVIEW').length
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
           <span className="logo" aria-hidden>
-            ▦
+            <i />
+            <i />
+            <i />
           </span>
           Kanban Agents
         </div>
+
+        <ProjectSwitcher projects={projects} selectedId={project.id} onSelect={chooseProject} />
+
+        <nav className="tabs" aria-label="View">
+          <button aria-current={view === 'board' ? 'page' : undefined} onClick={() => setView('board')}>
+            Board
+          </button>
+          <button aria-current={view === 'logbook' ? 'page' : undefined} onClick={() => setView('logbook')}>
+            Logbook
+          </button>
+        </nav>
+
         <div className="stats">
           <span>{project.tasks.length} tasks</span>
+          {waiting > 0 && <span className="waiting">{waiting} to review</span>}
           {running > 0 && (
             <span className="running">
               <span className="pulse" /> {running} agent{running > 1 ? 's' : ''} running
@@ -112,45 +150,42 @@ export default function App() {
 
       <main>
         <div className="board-header">
-          <h1>{project.name}</h1>
-          <NewTaskForm projectId={project.id} />
+          <div>
+            <h1>{project.name}</h1>
+            <p className="repo">
+              <code>{project.repoPath}</code>
+              <span className="branch">
+                <Icon name="merge" size={12} /> {project.defaultBranch}
+              </span>
+            </p>
+          </div>
+          {view === 'board' && <NewTaskForm projectId={project.id} agents={data?.agents ?? []} />}
         </div>
 
-        <div className="layout">
-          <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-            <div className="board">
-              {COLUMNS.map((col) => {
-                const tasks = project.tasks.filter((t) => t.status === col.status)
-                return (
-                  <Column key={col.status} status={col.status} label={col.label} count={tasks.length}>
-                    {tasks.map((t) => (
-                      <TaskCard
-                        key={t.id}
-                        id={t.id}
-                        title={t.title}
-                        description={t.prompt}
-                        status={t.status}
-                        agent={t.agent}
-                        updatedAt={t.updatedAt}
-                        selected={t.id === selectedId}
-                        onSelect={setSelectedId}
-                      />
-                    ))}
-                  </Column>
-                )
-              })}
-            </div>
-          </DndContext>
+        <div className={selectedId ? 'layout with-panel' : 'layout'}>
+          {view === 'board' ? (
+            <Board tasks={project.tasks} selectedId={selectedId} onSelect={setSelectedId} onError={setMoveError} />
+          ) : (
+            <Logbook projectId={project.id} tick={tick} selectedId={selectedId} onSelect={setSelectedId} />
+          )}
 
-          {selectedId && <LogPanel taskId={selectedId} onClose={() => setSelectedId(null)} />}
+          {selectedId && (
+            <TaskPanel
+              key={selectedId} // a fresh panel per task, so one task's live lines never show in another
+              taskId={selectedId}
+              tick={tick}
+              baseBranch={project.defaultBranch}
+              onClose={() => setSelectedId(null)}
+            />
+          )}
         </div>
       </main>
 
       {moveError && (
         <div className="toast" role="alert">
           <p className="error">{moveError}</p>
-          <button onClick={() => setMoveError(null)} aria-label="Dismiss">
-            ✕
+          <button className="icon-button" onClick={() => setMoveError(null)} aria-label="Dismiss">
+            <Icon name="close" />
           </button>
         </div>
       )}

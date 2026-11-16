@@ -2,6 +2,13 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createClient as createWSClient } from 'graphql-ws'
 import { Client, Provider, cacheExchange, fetchExchange, subscriptionExchange } from 'urql'
+// The fonts are npm packages, so the app needs no font CDN and works offline
+import '@fontsource-variable/fraunces'
+import '@fontsource/ibm-plex-sans/400.css'
+import '@fontsource/ibm-plex-sans/500.css'
+import '@fontsource/ibm-plex-sans/600.css'
+import '@fontsource/ibm-plex-mono/400.css'
+import '@fontsource/ibm-plex-mono/500.css'
 import './index.css'
 import App from './App.tsx'
 
