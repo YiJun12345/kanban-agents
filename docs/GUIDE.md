@@ -908,9 +908,11 @@ export PATH="$PWD/cli/target/debug:$PATH"
    moves to Failed with "No heartbeat…" in its journal.
 6. See stopping: claim a task, then drag its card back to To Do. Now `kanban hb <id>` answers
    "… does not hold a claim on this task".
-7. The short way: `kanban work -- sh examples/external-agent.sh` does not fit (that script
-   claims by itself), so run the script directly: `sh examples/external-agent.sh`. Then try
+7. A whole worker as a script: add another External task, drag it to In Progress, and run
+   `sh examples/external-agent.sh`. Read the script; it is the steps above in 20 lines.
+8. Any program as an agent: add one more External task, drag it over, and run
    `kanban work -- sh -c 'echo "JOURNAL: PLAN: $KANBAN_TASK_PROMPT"; date > stamp.txt'`.
+   `work` claims, runs the command in the worktree, sends heartbeats, and submits.
 
 ### 13.8 The tests
 
