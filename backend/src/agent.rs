@@ -13,7 +13,6 @@ use uuid::Uuid;
 use crate::claude::{self, ClaudeConfig};
 use crate::domain::{AgentKind, Task, Worker};
 use crate::events::Events;
-use crate::journal;
 use crate::ledger::{self, Assignment};
 
 // The fake agent: pretends to work for a few seconds, then edits a file in the worktree.
@@ -184,10 +183,10 @@ async fn work(
                 if task.agent == AgentKind::Claude {
                     // Claude prints JSON events; turn each into lines a person can read
                     for text in claude::readable(&content) {
-                        report(pool, events, worker, job, text).await?;
+                        ledger::log_line(pool, events, worker, task.id, text).await?;
                     }
                 } else {
-                    report(pool, events, worker, job, content).await?;
+                    ledger::log_line(pool, events, worker, task.id, content).await?;
                 }
             }
             _ = heartbeat.tick() => {
@@ -209,23 +208,6 @@ async fn work(
         ledger::append_log(pool, events, task.id, job.run_id, format!("stderr: {line}")).await?;
     }
     Ok(Outcome::Exited(exit.code()))
-}
-
-/// One line the agent printed: it goes to the raw output, and a "JOURNAL:" line is also
-/// written to the journal on the agent's behalf
-async fn report(
-    pool: &PgPool,
-    events: &Events,
-    worker: &Worker,
-    job: &Assignment,
-    content: String,
-) -> anyhow::Result<()> {
-    let entry = journal::parse_agent_line(&content).map(|(kind, note_kind, text)| (kind, note_kind, text.to_owned()));
-    ledger::append_log(pool, events, job.task.id, job.run_id, content).await?;
-    if let Some((kind, note_kind, text)) = entry {
-        ledger::note(pool, events, worker, job.task.id, kind, note_kind, &text).await?;
-    }
-    Ok(())
 }
 
 fn fake_command(prompt: &str, journal: &str, feedback: Option<&str>) -> Command {

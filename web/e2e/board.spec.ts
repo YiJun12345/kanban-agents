@@ -51,12 +51,14 @@ async function addTask(page: Page, title: string, description: string) {
 
 // dnd-kit listens to pointer moves, so drag with small mouse steps like a real user
 async function drag(page: Page, title: string, to: string) {
+  await card(page, title).scrollIntoViewIfNeeded() // the mouse can only reach what is on screen
   const from = (await card(page, title).boundingBox())!
   const target = (await column(page, to).boundingBox())!
   await page.mouse.move(from.x + 20, from.y + 10)
   await page.mouse.down()
   await page.mouse.move(from.x + 40, from.y + 20, { steps: 5 }) // past the 5px threshold
-  await page.mouse.move(target.x + 60, target.y + 60, { steps: 10 })
+  // Aim at the column at the card's own height, so the target is on screen as well
+  await page.mouse.move(target.x + 60, Math.max(target.y + 60, from.y), { steps: 10 })
   await page.mouse.up()
 }
 
@@ -100,7 +102,9 @@ test('agent works on a task; the review shows its summary, diff and journal', as
   const run = panel.locator('.run')
   await expect(run.locator('summary').first()).toContainText('Run #1')
   await expect(run).toHaveAttribute('data-state', 'finished')
-  await expect(run.locator('.entry[data-actor="AGENT"]').first()).toContainText('Plan: add a greeting')
+  const plan = run.locator('.entry[data-actor="AGENT"]').first()
+  await expect(plan).toContainText('add a greeting')
+  await expect(plan.locator('.tag[data-note="PLAN"]')).toHaveText('plan')
   await expect(run.locator('.entry[data-kind="COMMIT"]')).toContainText('AGENT_NOTES.md')
   await expect(panel.locator('.entry').last()).toContainText('Moved from In Progress to In Review')
 
@@ -264,6 +268,59 @@ test('a project is created from the board, and only for a real git repo', async 
   await expect(page.locator('.card')).toHaveCount(0)
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Second board' })).toBeVisible()
+})
+
+test('an outside worker takes a task with the kanban CLI', async ({ page }) => {
+  // The CLI talks to the same backend as the page; this runs it as a worker would
+  const cli = (token: string, ...args: string[]) =>
+    JSON.parse(
+      execFileSync(join(import.meta.dirname, '../../cli/target/debug/kanban'), args, {
+        env: { ...process.env, KANBAN_URL: `${BACKEND_URL}/graphql`, KANBAN_TOKEN: token },
+      }).toString(),
+    )
+
+  // Create the worker in the UI; its token is shown once
+  await page.goto('/')
+  const views = page.getByRole('navigation', { name: 'View' })
+  await views.getByRole('button', { name: 'Workers' }).click()
+  await page.getByLabel('Worker name').fill('e2e-worker')
+  await page.getByRole('button', { name: 'Create token' }).click()
+  const commands = await page.locator('.token pre').innerText()
+  const token = commands.match(/KANBAN_TOKEN=(kbt_\w+)/)![1]
+
+  // A task for outside workers waits in In Progress: the board starts nothing itself
+  await views.getByRole('button', { name: 'Board' }).click()
+  await page.getByLabel('Agent').selectOption('EXTERNAL')
+  await addTask(page, 'Outside job', 'write outside.txt')
+  await drag(page, 'Outside job', 'In Progress')
+  await expect(inColumn(page, 'In Progress', 'Outside job')).toContainText('waiting for a worker')
+
+  // The worker claims it, and the card shows who has it, live
+  const job = cli(token, 'next')
+  expect(job.task.title).toBe('Outside job')
+  expect(job.task.prompt).toBe('write outside.txt')
+  await expect(inColumn(page, 'In Progress', 'Outside job')).toContainText('e2e-worker')
+
+  // It works in the worktree it was given, reports, and submits
+  cli(token, 'note', job.task.id, '--kind', 'plan', 'create outside.txt')
+  writeFileSync(join(job.worktreePath, 'outside.txt'), 'made outside\n')
+  cli(token, 'submit', job.task.id, '--summary', 'Created outside.txt')
+
+  await expect(inColumn(page, 'In Review', 'Outside job')).toBeVisible()
+  await card(page, 'Outside job').click()
+  const panel = page.locator('.panel')
+  await expect(panel.locator('.summary')).toHaveText('Created outside.txt')
+  await expect(panel.locator('pre.diff .add', { hasText: '+made outside' })).toBeVisible()
+  // Its entries are signed with its name
+  const note = panel.locator('.entry[data-kind="NOTE"]')
+  await expect(note).toContainText('e2e-worker')
+  await expect(note).toContainText('create outside.txt')
+  await expect(panel.locator('.run summary').first()).toContainText('e2e-worker')
+
+  // With the task handed in, the worker holds nothing; a second `next` finds no work
+  expect(cli(token, 'next')).toBeNull()
+  await views.getByRole('button', { name: 'Workers' }).click()
+  await expect(page.locator('.workers tr', { hasText: 'e2e-worker' })).toContainText('nothing')
 })
 
 test('agents that cannot run here cannot be picked', async ({ page }) => {

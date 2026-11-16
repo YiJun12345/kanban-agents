@@ -18,6 +18,13 @@ const TaskQuery = graphql(`
       agent
       branch
       mergeCommit
+      claim {
+        quietSecs
+        worker {
+          name
+          builtin
+        }
+      }
       updatedAt
       diff
       logs {
@@ -31,6 +38,8 @@ const TaskQuery = graphql(`
         runId
         actor
         kind
+        noteKind
+        author
         message
         details
         createdAt
@@ -138,6 +147,7 @@ export function TaskPanel({ taskId, tick, baseBranch, onClose }: Props) {
       <ReviewActions
         taskId={task.id}
         status={task.status}
+        claimed={!!task.claim}
         mergeCommit={task.mergeCommit}
         baseBranch={baseBranch}
       />
@@ -147,6 +157,21 @@ export function TaskPanel({ taskId, tick, baseBranch, onClose }: Props) {
         <dd className="assignee">
           <span className="avatar">AI</span> {task.agent.toLowerCase()} agent
         </dd>
+        {task.status === 'IN_PROGRESS' && (
+          <>
+            <dt>Worker</dt>
+            <dd>
+              {task.claim ? (
+                <>
+                  <code>{task.claim.worker.name}</code>{' '}
+                  <span className="muted">heartbeat {task.claim.quietSecs}s ago</span>
+                </>
+              ) : (
+                <span className="muted">waiting for a worker to claim it</span>
+              )}
+            </dd>
+          </>
+        )}
         <dt>Branch</dt>
         <dd>
           {!task.branch ? (

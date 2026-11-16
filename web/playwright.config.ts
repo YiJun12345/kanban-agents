@@ -12,11 +12,16 @@ export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
   workers: 1, // tests share one board, so run them one at a time
-  use: { baseURL: `http://localhost:${WEB_PORT}`, trace: 'retain-on-failure' },
+  use: {
+    baseURL: `http://localhost:${WEB_PORT}`,
+    trace: 'retain-on-failure',
+    viewport: { width: 1440, height: 1000 },
+  },
   webServer: [
     {
       // Wipe and re-create the e2e database, then start the backend on it
-      command: 'sqlx database reset -y && cargo run',
+      // Also build the `kanban` CLI, which one test uses as an outside worker
+      command: 'sqlx database reset -y && cargo build --manifest-path ../cli/Cargo.toml && cargo run',
       cwd: '../backend',
       // An empty key keeps the Claude agent off here, even if your backend/.env has one:
       // the tests must never start a real (paid) agent

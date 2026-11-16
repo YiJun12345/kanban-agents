@@ -64,6 +64,7 @@ export function Board({ tasks, selectedId, onSelect, onError }: Props) {
                   agent={t.agent}
                   updatedAt={t.updatedAt}
                   headline={t.headline}
+                  claim={t.claim}
                   selected={t.id === selectedId}
                   onSelect={onSelect}
                 />

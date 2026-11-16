@@ -1,8 +1,29 @@
 import { useDraggable } from '@dnd-kit/core'
 import type { JournalActor, JournalKind, TaskStatus } from '../gql/graphql'
-import { KIND_ICON, ticket, WHO } from '../journal'
+import { KIND_ICON, ticket, who } from '../journal'
 import { timeAgo } from '../time'
 import { Icon } from './Icon'
+
+/** A worker that has sent no heartbeat for this long is probably stuck (its claim expires at 60s) */
+const QUIET_AFTER_SECS = 30
+
+/** Top-right of a card in In Progress: who has it, or that nobody has yet */
+function Holder({ claim }: { claim: Props['claim'] }) {
+  if (!claim) return <span className="waiting-worker">waiting for a worker</span>
+  const name = claim.worker.builtin ? 'working' : claim.worker.name
+  if (claim.quietSecs > QUIET_AFTER_SECS) {
+    return (
+      <span className="quiet" title="No heartbeat lately; the claim expires after 60s of silence">
+        {name} · quiet {claim.quietSecs}s
+      </span>
+    )
+  }
+  return (
+    <span className="working">
+      <span className="spinner" /> {name}
+    </span>
+  )
+}
 
 type Props = {
   id: string
@@ -12,7 +33,9 @@ type Props = {
   agent: string
   updatedAt: string
   // The newest note, summary or error from the task's journal
-  headline?: { actor: JournalActor; kind: JournalKind; message: string } | null
+  headline?: { actor: JournalActor; kind: JournalKind; author?: string | null; message: string } | null
+  // Who is working on it right now, and how long since they last said so
+  claim?: { quietSecs: number; worker: { name: string; builtin: boolean } } | null
   selected: boolean
   onSelect: (id: string) => void
 }
@@ -25,6 +48,7 @@ export function TaskCard({
   agent,
   updatedAt,
   headline,
+  claim,
   selected,
   onSelect,
 }: Props) {
@@ -50,9 +74,7 @@ export function TaskCard({
       <div className="card-top">
         <span className="ticket">{ticket(id)}</span>
         {status === 'IN_PROGRESS' ? (
-          <span className="working">
-            <span className="spinner" /> working
-          </span>
+          <Holder claim={claim} />
         ) : (
           <span className="time">{timeAgo(updatedAt)}</span>
         )}
@@ -63,7 +85,7 @@ export function TaskCard({
         <p className="card-headline" data-kind={headline.kind} data-actor={headline.actor} title={headline.message}>
           <Icon name={KIND_ICON[headline.kind]} size={12} />
           <span>
-            <b>{WHO[headline.actor]}:</b> {headline.message}
+            <b>{who(headline)}:</b> {headline.message}
           </span>
         </p>
       )}

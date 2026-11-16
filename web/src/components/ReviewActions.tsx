@@ -35,12 +35,13 @@ const RequestChangesMutation = graphql(`
 type Props = {
   taskId: string
   status: TaskStatus
+  claimed: boolean // is a worker on it right now?
   mergeCommit?: string | null
   baseBranch: string
 }
 
 /** The buttons for the task's next step. They do the same as dragging the card. */
-export function ReviewActions({ taskId, status, mergeCommit, baseBranch }: Props) {
+export function ReviewActions({ taskId, status, claimed, mergeCommit, baseBranch }: Props) {
   const [moving, move] = useMutation(MoveMutation)
   const [approving, approve] = useMutation(ApproveMutation)
   const [requesting, requestChanges] = useMutation(RequestChangesMutation)
@@ -75,7 +76,7 @@ export function ReviewActions({ taskId, status, mergeCommit, baseBranch }: Props
 
       {status === 'IN_PROGRESS' && (
         <button disabled={busy} onClick={() => run(move({ id: taskId, status: 'TODO' }))}>
-          <Icon name="stop" /> Stop agent
+          <Icon name="stop" /> {claimed ? 'Stop agent' : 'Back to To Do'}
         </button>
       )}
 

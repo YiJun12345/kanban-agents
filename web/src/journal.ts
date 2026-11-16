@@ -1,5 +1,5 @@
 import type { IconName } from './components/Icon'
-import type { JournalActor, JournalKind } from './gql/graphql'
+import type { JournalActor, JournalKind, NoteKind } from './gql/graphql'
 
 /** One line of a task's journal, as the API returns it */
 export type Entry = {
@@ -8,6 +8,8 @@ export type Entry = {
   runId?: string | null
   actor: JournalActor
   kind: JournalKind
+  noteKind?: NoteKind | null
+  author?: string | null // the worker that signed the entry
   message: string
   details: Record<string, unknown>
   createdAt: string
@@ -28,13 +30,23 @@ export const KIND_ICON: Record<JournalKind, IconName> = {
   COMMIT: 'commit',
   MERGE: 'merge',
   ERROR: 'alert',
+  CHECKPOINT: 'flag',
 }
+
+/** Who to show for an entry: an outside worker by its name, anyone else by role */
+export function who(entry: { actor: JournalActor; author?: string | null }) {
+  const named = entry.author && !entry.author.startsWith('builtin-')
+  return named ? entry.author! : WHO[entry.actor]
+}
+
+// What the agent itself wrote, as opposed to what the system recorded about it
+const WRITTEN: JournalKind[] = ['NOTE', 'SUMMARY', 'CHECKPOINT']
 
 // Notes are what people and agents wrote; history is what the system recorded
 export const FILTERS = {
   All: () => true,
-  Notes: (e: Entry) => e.kind === 'NOTE' || e.kind === 'SUMMARY',
-  History: (e: Entry) => e.kind !== 'NOTE' && e.kind !== 'SUMMARY',
+  Notes: (e: Entry) => WRITTEN.includes(e.kind),
+  History: (e: Entry) => !WRITTEN.includes(e.kind),
 }
 export type Filter = keyof typeof FILTERS
 

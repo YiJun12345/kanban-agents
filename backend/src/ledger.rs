@@ -331,7 +331,8 @@ pub async fn checkpoint(
     journal::record(pool, events, entry).await
 }
 
-/// Add a line to the run's raw output, as the worker
+/// Add a line to the run's raw output, as the worker. A line that starts with "JOURNAL:"
+/// is also written to the journal, so an agent that can only print still keeps one.
 pub async fn log_line(
     pool: &PgPool,
     events: &Events,
@@ -340,7 +341,13 @@ pub async fn log_line(
     content: String,
 ) -> anyhow::Result<LogLine> {
     let claim = held(pool, worker, task_id).await?;
-    append_log(pool, events, task_id, claim.run_id, content).await
+    let entry = journal::parse_agent_line(&content)
+        .map(|(kind, note_kind, text)| (kind, note_kind, text.to_owned()));
+    let line = append_log(pool, events, task_id, claim.run_id, content).await?;
+    if let Some((kind, note_kind, text)) = entry {
+        note(pool, events, worker, task_id, kind, note_kind, &text).await?;
+    }
+    Ok(line)
 }
 
 /// Add a line to a run's raw output and send it to open browsers

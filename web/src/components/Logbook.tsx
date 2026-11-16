@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from 'urql'
 import { graphql } from '../gql'
-import { clock, dayLabel, FILTERS, KIND_ICON, ticket, type Filter, WHO } from '../journal'
+import { clock, dayLabel, FILTERS, KIND_ICON, ticket, type Filter, who } from '../journal'
 import { useRefetchOnTick } from '../useRefetchOnTick'
 import { Icon } from './Icon'
 import { FilterChips } from './Journal'
@@ -16,6 +16,8 @@ const LogbookQuery = graphql(`
         runId
         actor
         kind
+        noteKind
+        author
         message
         details
         createdAt
@@ -82,8 +84,11 @@ export function Logbook({ projectId, tick, selectedId, onSelect }: Props) {
                   <span className="entry-icon">
                     <Icon name={KIND_ICON[e.kind]} size={13} />
                   </span>
-                  <span className="log-who">{WHO[e.actor]}</span>
-                  <span className="log-message">{e.message}</span>
+                  <span className="log-who">{who(e)}</span>
+                  <span className="log-message">
+                    {e.noteKind && <span className="tag">{e.noteKind.toLowerCase()} </span>}
+                    {e.message}
+                  </span>
                   <span className="log-task">
                     <span className="ticket">{ticket(e.task.id)}</span> {e.task.title}
                   </span>

@@ -10,6 +10,8 @@ const JournalSubscription = graphql(`
       runId
       actor
       kind
+      noteKind
+      author
       message
       details
       createdAt

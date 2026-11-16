@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation } from 'urql'
 import { graphql } from '../gql'
-import { clock, FILTERS, KIND_ICON, WHO, type Entry, type Filter } from '../journal'
+import { clock, FILTERS, KIND_ICON, who, type Entry, type Filter } from '../journal'
 import { Icon } from './Icon'
 
 const AddNoteMutation = graphql(`
@@ -121,12 +121,35 @@ export function EntryItem({ entry: e }: { entry: Entry }) {
       </span>
       <div className="entry-body">
         <div className="entry-meta">
-          <strong>{WHO[e.actor]}</strong>
+          <strong>{who(e)}</strong>
           {feedback && <span className="tag">requested changes</span>}
           {e.kind === 'SUMMARY' && <span className="tag">summary</span>}
+          {e.kind === 'CHECKPOINT' && <span className="tag">checkpoint</span>}
+          {e.noteKind && (
+            <span className="tag" data-note={e.noteKind}>
+              {e.noteKind.toLowerCase()}
+            </span>
+          )}
           <time dateTime={e.createdAt}>{clock(e.createdAt)}</time>
         </div>
         <p>{e.message}</p>
+        {e.kind === 'CHECKPOINT' && (
+          // A checkpoint also says what the worker is trying to do and what comes next
+          <dl className="checkpoint">
+            {typeof e.details.intent === 'string' && e.details.intent && (
+              <>
+                <dt>Intent</dt>
+                <dd>{e.details.intent}</dd>
+              </>
+            )}
+            {typeof e.details.next_action === 'string' && e.details.next_action && (
+              <>
+                <dt>Next</dt>
+                <dd>{e.details.next_action}</dd>
+              </>
+            )}
+          </dl>
+        )}
         {Array.isArray(e.details.files) && (
           <ul className="files">
             {e.details.files.map((f) => (
@@ -146,6 +169,9 @@ function RunItem({ run, latest, children }: { run: Run; latest: boolean; childre
   const finished = run.entries.find((e) => e.kind === 'RUN_FINISHED')
   const commit = run.entries.find((e) => e.kind === 'COMMIT')?.details.commit
   const secs = finished?.details.duration_secs
+  // Which worker did this run (the built-in runners are not worth naming)
+  const worker = run.entries.find((e) => e.kind === 'RUN_STARTED')?.details.worker
+  const outside = typeof worker === 'string' && !worker.startsWith('builtin-')
   let state = 'running'
   if (finished) {
     if (finished.details.stopped) state = 'stopped'
@@ -158,6 +184,7 @@ function RunItem({ run, latest, children }: { run: Run; latest: boolean; childre
         <summary>
           <Icon name="chevron" size={12} />
           <span className="run-title">Run #{run.number}</span>
+          {outside && <span className="run-worker">{worker}</span>}
           <span className="run-state">{state}</span>
           {typeof secs === 'number' && <span className="run-time">{secs.toFixed(1)}s</span>}
           {typeof commit === 'string' && (

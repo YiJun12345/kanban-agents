@@ -6,6 +6,7 @@ import { Logbook } from './components/Logbook'
 import { NewTaskForm } from './components/NewTaskForm'
 import { NewProjectForm, ProjectSwitcher } from './components/ProjectSwitcher'
 import { TaskPanel } from './components/TaskPanel'
+import { Workers } from './components/Workers'
 import { graphql } from './gql'
 import { useRefetchOnTick } from './useRefetchOnTick'
 
@@ -26,7 +27,15 @@ const BoardQuery = graphql(`
         headline {
           actor
           kind
+          author
           message
+        }
+        claim {
+          quietSecs
+          worker {
+            name
+            builtin
+          }
         }
       }
     }
@@ -47,7 +56,7 @@ const TaskUpdatedSubscription = graphql(`
   }
 `)
 
-type View = 'board' | 'logbook'
+type View = 'board' | 'logbook' | 'workers'
 
 // Remember the chosen project between visits (localStorage can be unavailable, e.g. private mode)
 const PROJECT_KEY = 'kanban.project'
@@ -111,7 +120,8 @@ export default function App() {
     )
   }
 
-  const running = project.tasks.filter((t) => t.status === 'IN_PROGRESS').length
+  const running = project.tasks.filter((t) => t.claim).length
+  const unclaimed = project.tasks.filter((t) => t.status === 'IN_PROGRESS' && !t.claim).length
   const waiting = project.tasks.filter((t) => t.status === 'IN_REVIEW').length
 
   return (
@@ -135,10 +145,14 @@ export default function App() {
           <button aria-current={view === 'logbook' ? 'page' : undefined} onClick={() => setView('logbook')}>
             Logbook
           </button>
+          <button aria-current={view === 'workers' ? 'page' : undefined} onClick={() => setView('workers')}>
+            Workers
+          </button>
         </nav>
 
         <div className="stats">
           <span>{project.tasks.length} tasks</span>
+          {unclaimed > 0 && <span>{unclaimed} waiting for a worker</span>}
           {waiting > 0 && <span className="waiting">{waiting} to review</span>}
           {running > 0 && (
             <span className="running">
@@ -165,8 +179,10 @@ export default function App() {
         <div className={selectedId ? 'layout with-panel' : 'layout'}>
           {view === 'board' ? (
             <Board tasks={project.tasks} selectedId={selectedId} onSelect={setSelectedId} onError={setMoveError} />
-          ) : (
+          ) : view === 'logbook' ? (
             <Logbook projectId={project.id} tick={tick} selectedId={selectedId} onSelect={setSelectedId} />
+          ) : (
+            <Workers tick={tick} onSelect={setSelectedId} />
           )}
 
           {selectedId && (
