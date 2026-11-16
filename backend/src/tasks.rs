@@ -1,11 +1,17 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::domain::{Task, TaskStatus};
+use crate::domain::{JournalActor, JournalEntry, JournalKind, Task, TaskStatus};
+use crate::journal::{self, NewEntry};
 
-/// Move a task to a new status, enforcing the board rules.
+/// Move a task to a new status, enforcing the board rules, and record it in the journal.
 /// Both users (moveTask) and agents (when they finish) go through here.
-pub async fn transition(pool: &PgPool, id: Uuid, to: TaskStatus) -> anyhow::Result<Task> {
+pub async fn transition(
+    pool: &PgPool,
+    id: Uuid,
+    to: TaskStatus,
+    actor: JournalActor,
+) -> anyhow::Result<(Task, JournalEntry)> {
     let mut tx = pool.begin().await?;
 
     // Lock the row so two requests can't move the same task at once
@@ -28,6 +34,10 @@ pub async fn transition(pool: &PgPool, id: Uuid, to: TaskStatus) -> anyhow::Resu
     .fetch_one(&mut *tx)
     .await?;
 
+    // Same transaction: the move and its journal entry are saved together, or not at all
+    let message = format!("Moved from {} to {}", current.label(), to.label());
+    let entry = journal::insert(&mut *tx, NewEntry::new(id, actor, JournalKind::Status, message)).await?;
+
     tx.commit().await?;
-    Ok(task)
+    Ok((task, entry))
 }

@@ -49,9 +49,72 @@ pub async fn commit_all(worktree: &str, message: &str) -> anyhow::Result<bool> {
     Ok(true)
 }
 
+/// Short hash and changed files of the latest commit
+pub async fn last_commit(worktree: &str) -> anyhow::Result<(String, Vec<String>)> {
+    let out = git(worktree, &["show", "--name-only", "--format=%h", "HEAD"]).await?;
+    let mut lines = out.lines().filter(|l| !l.is_empty());
+    let hash = lines.next().unwrap_or_default().to_string();
+    Ok((hash, lines.map(String::from).collect()))
+}
+
 /// Everything the branch changed since it split off from `base`
 pub async fn diff(repo: &str, base: &str, branch: &str) -> anyhow::Result<String> {
     git(repo, &["diff", &format!("{base}...{branch}")]).await
+}
+
+/// What a merge commit brought in (used after the task's branch is gone)
+pub async fn diff_of_merge(repo: &str, commit: &str) -> anyhow::Result<String> {
+    git(repo, &["diff", &format!("{commit}^1"), commit]).await
+}
+
+/// The branch that is checked out in this repo, e.g. "main"
+pub async fn current_branch(repo: &str) -> anyhow::Result<String> {
+    let out = git(repo, &["symbolic-ref", "--short", "HEAD"]).await;
+    Ok(out.context("not a git repository with a branch checked out")?.trim().to_string())
+}
+
+pub async fn has_branch(repo: &str, branch: &str) -> bool {
+    git(repo, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}")]).await.is_ok()
+}
+
+/// Merge the task's branch into `base` with a merge commit, and return its short hash.
+/// Returns None when the branch has nothing new. A conflict is undone and reported as an error.
+pub async fn merge(repo: &str, base: &str, branch: &str, message: &str) -> anyhow::Result<Option<String>> {
+    let checked_out = current_branch(repo).await?;
+    if checked_out != base {
+        bail!("the repository has `{checked_out}` checked out; switch it to `{base}` to merge");
+    }
+    let ahead = git(repo, &["rev-list", "--count", &format!("{base}..{branch}")]).await?;
+    if ahead.trim() == "0" {
+        return Ok(None);
+    }
+
+    let merged = git(
+        repo,
+        &[
+            "-c", "user.name=kanban-agent",
+            "-c", "user.email=kanban-agent@localhost",
+            "merge", "--no-ff", "-m", message, branch,
+        ],
+    )
+    .await;
+    if let Err(e) = merged {
+        // Leave the repo as we found it instead of half-merged
+        let _ = git(repo, &["merge", "--abort"]).await;
+        return Err(e.context(format!("could not merge {branch} into {base}")));
+    }
+    Ok(Some(git(repo, &["rev-parse", "--short", "HEAD"]).await?.trim().to_string()))
+}
+
+/// Delete a task's worktree folder and its branch (after a merge, both are no longer needed)
+pub async fn remove_worktree(repo: &str, path: &str, branch: &str) -> anyhow::Result<()> {
+    if Path::new(path).exists() {
+        git(repo, &["worktree", "remove", "--force", path]).await?;
+    }
+    if has_branch(repo, branch).await {
+        git(repo, &["branch", "-D", branch]).await?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -98,11 +161,60 @@ mod tests {
 
         std::fs::write(format!("{wt}/NOTES.md"), "hello\n").unwrap();
         assert!(commit_all(&wt, "add notes").await.unwrap());
+        let (hash, files) = last_commit(&wt).await.unwrap();
+        assert_eq!(hash.len(), 7, "short hash: {hash}");
+        assert_eq!(files, ["NOTES.md"]);
 
         let d = diff(&repo, "main", "kanban/task-1").await.unwrap();
         assert!(d.contains("+hello"), "diff shows the new line: {d}");
         // main itself is untouched
         assert!(!Path::new(&repo).join("NOTES.md").exists());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn merge_and_cleanup() {
+        let (root, repo) = testing::temp_repo().await;
+        let wt = format!("{repo}-worktrees/task-1");
+        ensure_worktree(&repo, "main", "kanban/task-1", &wt).await.unwrap();
+        assert_eq!(current_branch(&repo).await.unwrap(), "main");
+
+        // A branch with nothing new is not merged
+        assert_eq!(merge(&repo, "main", "kanban/task-1", "Merge").await.unwrap(), None);
+
+        std::fs::write(format!("{wt}/NOTES.md"), "hello\n").unwrap();
+        commit_all(&wt, "add notes").await.unwrap();
+        let commit = merge(&repo, "main", "kanban/task-1", "Merge task: notes").await.unwrap().unwrap();
+        assert!(Path::new(&repo).join("NOTES.md").exists(), "main now has the file");
+        assert!(diff_of_merge(&repo, &commit).await.unwrap().contains("+hello"));
+
+        remove_worktree(&repo, &wt, "kanban/task-1").await.unwrap();
+        assert!(!Path::new(&wt).exists());
+        assert!(!has_branch(&repo, "kanban/task-1").await);
+        // The merge's diff is still there after the branch is deleted
+        assert!(diff_of_merge(&repo, &commit).await.unwrap().contains("+hello"));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[tokio::test]
+    async fn conflicting_merge_is_undone() {
+        let (root, repo) = testing::temp_repo().await;
+        let wt = format!("{repo}-worktrees/task-1");
+        ensure_worktree(&repo, "main", "kanban/task-1", &wt).await.unwrap();
+
+        // The same file changes on both sides
+        std::fs::write(format!("{wt}/README.md"), "from the agent\n").unwrap();
+        commit_all(&wt, "agent").await.unwrap();
+        std::fs::write(format!("{repo}/README.md"), "from a person\n").unwrap();
+        commit_all(&repo, "person").await.unwrap();
+
+        let err = merge(&repo, "main", "kanban/task-1", "Merge").await.unwrap_err();
+        assert!(format!("{err:#}").starts_with("could not merge kanban/task-1 into main"), "{err:#}");
+        // No half-finished merge is left behind
+        assert_eq!(git(&repo, &["status", "--porcelain"]).await.unwrap(), "");
+        assert_eq!(std::fs::read_to_string(format!("{repo}/README.md")).unwrap(), "from a person\n");
 
         std::fs::remove_dir_all(root).unwrap();
     }

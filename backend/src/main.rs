@@ -1,8 +1,11 @@
 mod agent;
+mod claude;
 mod domain;
 mod events;
 mod git;
 mod graphql;
+mod journal;
+mod review;
 mod tasks;
 
 use async_graphql::http::GraphiQLSource;
@@ -28,9 +31,15 @@ async fn main() -> anyhow::Result<()> {
     let pool = PgPool::connect(&std::env::var("DATABASE_URL")?).await?;
     sqlx::migrate!().run(&pool).await?; // applies migrations/ on startup
 
+    agent::recover(&pool).await?; // no agent survives a restart; un-stick their cards
+
     // Events channel: agents and mutations send, subscriptions receive
     let (events, _) = broadcast::channel(256);
-    let schema = graphql::build_schema(pool, events);
+    let agents = agent::Agents::new(claude::ClaudeConfig::from_env());
+    if let Some(problem) = agents.claude.problem() {
+        println!("Claude agent is off: {problem}");
+    }
+    let schema = graphql::build_schema(pool, events, agents);
 
     let app = Router::new()
         .route("/graphql", get(graphiql).post_service(GraphQL::new(schema.clone())))

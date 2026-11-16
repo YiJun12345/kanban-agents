@@ -13,6 +13,17 @@ pub enum TaskStatus {
 }
 
 impl TaskStatus {
+    /// Name shown to people, e.g. "In Review"
+    pub fn label(self) -> &'static str {
+        match self {
+            TaskStatus::Todo => "To Do",
+            TaskStatus::InProgress => "In Progress",
+            TaskStatus::InReview => "In Review",
+            TaskStatus::Done => "Done",
+            TaskStatus::Failed => "Failed",
+        }
+    }
+
     pub fn can_move_to(self, to: TaskStatus) -> bool {
         use TaskStatus::*;
         matches!(
@@ -24,6 +35,7 @@ impl TaskStatus {
                 | (InReview, Done)
                 | (InReview, InProgress)
                 | (Failed, Todo)
+                | (Failed, InProgress) // retry
         )
     }
 }
@@ -57,8 +69,46 @@ pub struct Task {
     pub agent: AgentKind,
     pub branch: Option<String>,
     pub worktree_path: Option<String>,
+    /// Set when the task was approved and its branch merged
+    pub merge_commit: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Enum, sqlx::Type, Copy, Clone, Debug, PartialEq, Eq)]
+#[sqlx(type_name = "journal_actor", rename_all = "snake_case")]
+pub enum JournalActor {
+    Agent,
+    Human,
+    System,
+}
+
+#[derive(Enum, sqlx::Type, Copy, Clone, Debug, PartialEq, Eq)]
+#[sqlx(type_name = "journal_kind", rename_all = "snake_case")]
+pub enum JournalKind {
+    Status,
+    RunStarted,
+    RunFinished,
+    Note,
+    Commit,
+    Error,
+    Summary, // the agent's own report at the end of a run
+    Merge,   // the task's branch was merged when it was approved
+}
+
+#[derive(SimpleObject, sqlx::FromRow, Clone, Debug)]
+#[graphql(complex)] // adds JournalEntry.details in graphql.rs
+pub struct JournalEntry {
+    pub id: Uuid,
+    pub seq: i64,
+    pub task_id: Uuid,
+    pub run_id: Option<Uuid>,
+    pub actor: JournalActor,
+    pub kind: JournalKind,
+    pub message: String,
+    #[graphql(skip)] // sqlx's Json type isn't a GraphQL type, so graphql.rs exposes it
+    pub details: sqlx::types::Json<serde_json::Value>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(SimpleObject, sqlx::FromRow, Clone, Debug)]
@@ -94,6 +144,7 @@ mod tests {
             (InReview, Done),
             (InReview, InProgress),
             (Failed, Todo),
+            (Failed, InProgress),
         ];
         for from in ALL {
             for to in ALL {
