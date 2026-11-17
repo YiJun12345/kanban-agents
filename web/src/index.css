@@ -11,16 +11,17 @@
   --paper-2: #eae3d4; /* trays (columns) and quiet blocks */
   --surface: #fffdf7; /* tickets and sheets */
   --ink: #211d18;
-  --muted: #6b6255;
-  --faint: #978d7e;
+  /* Text colours: each reads at 4.5:1 or better on paper, trays and tickets */
+  --muted: #5e564a;
+  --faint: #6e6557;
   --rule: #d9d0be; /* hairlines */
   --rule-strong: #b8ad97;
 
   --blue: #2748c9; /* the agent's ink; also "in progress" */
   --blue-soft: #e3e8fa;
-  --todo: #7d7466;
-  --review: #a86200;
-  --done: #2a7549;
+  --todo: #665d50;
+  --review: #8a5000;
+  --done: #256b42;
   --failed: #b3261e;
   --note: #fbf0b4; /* a person's sticky note */
 
@@ -42,8 +43,8 @@
     --paper-2: #1c1914;
     --surface: #24211a;
     --ink: #ece5d6;
-    --muted: #a69d8c;
-    --faint: #7c7465;
+    --muted: #b0a796;
+    --faint: #9a9181;
     --rule: #37322a;
     --rule-strong: #514a3c;
 
@@ -166,7 +167,10 @@ button.primary {
 }
 
 button.primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--ink) 85%, var(--blue));
+  border-color: var(--blue);
+  background: var(--blue);
+  box-shadow: 0 2px 0 color-mix(in srgb, var(--blue) 35%, transparent);
+  translate: 0 -1px;
 }
 
 button.icon-button {
@@ -388,9 +392,57 @@ main {
 
 .new-task {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+/* A small caption above a field: unlike a placeholder, it stays when you type */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--muted);
+  font: 10.5px/1.4 var(--mono);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.field input,
+.field select {
+  color: var(--ink);
+  font: 14px/1.5 var(--sans);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.field.inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.form-status {
+  flex-basis: 100%;
+  min-height: 1.5em; /* keeps its place, so the form does not jump when a message appears */
+  font-size: 13px;
+}
+
+/* Keyboard users can jump over the top bar; it only shows when it has focus */
+.skip-link {
+  position: absolute;
+  left: 12px;
+  top: -60px;
+  z-index: 30;
+  padding: 8px 14px;
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  top: 10px;
 }
 
 .new-task .title-input {
@@ -514,6 +566,10 @@ main {
   cursor: grabbing;
   box-shadow: var(--shadow-lift);
   rotate: 1.5deg;
+}
+
+.card-top .ticket {
+  flex: none;
 }
 
 .card-top {
@@ -1288,6 +1344,48 @@ main {
     padding: 10px 16px;
   }
 
+  /* On a narrow screen the counts wrap onto their own lines instead of widening the page */
+  .stats {
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    margin-left: 0;
+    white-space: normal;
+  }
+
+  /* A thumb needs about 44px: every control is at least that tall, icon buttons that wide too */
+  button,
+  input,
+  select {
+    min-height: 44px;
+  }
+
+  button.icon-button {
+    min-width: 44px;
+    justify-content: center;
+  }
+
+  .tabs {
+    gap: 6px;
+  }
+
+  .filters button {
+    padding-inline: 14px;
+  }
+
+  .new-task,
+  .new-task .field,
+  .new-task .field input,
+  .new-task .field select,
+  .new-task .title-input,
+  .new-task .description-input {
+    width: 100%;
+    max-width: none;
+  }
+
+  .board {
+    grid-template-columns: repeat(5, minmax(240px, 1fr)); /* room for a card's top line */
+  }
+
   main {
     padding: 16px;
   }
@@ -1323,6 +1421,13 @@ main {
 }
 
 /* ---------- Who holds a card ---------- */
+.waiting-worker,
+.quiet {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis; /* on a narrow card the line is cut, never past the edge */
+}
+
 .waiting-worker {
   color: var(--faint);
   font-style: italic;
@@ -1429,4 +1534,8 @@ button.link:hover {
   margin-top: 8px;
   max-height: none;
   user-select: all;
+}
+
+main:focus {
+  outline: none; /* it only takes focus from the skip link */
 }

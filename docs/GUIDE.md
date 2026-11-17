@@ -23,6 +23,7 @@ try it. Read it top to bottom once, with the app running next to you, then use i
 11. [Questions George might ask](#11-questions-george-might-ask)
 12. [Exercises](#12-exercises)
 13. [The ledger: agents take work themselves](#13-the-ledger-agents-take-work-themselves)
+14. [An accessibility and phone pass](#14-an-accessibility-and-phone-pass)
 
 ---
 
@@ -966,4 +967,34 @@ Said plainly, so you can answer if asked:
 10. **`kanban watch`.** A CLI command that prints a task's journal entries as they arrive.
     *Hint: the simplest version polls `show` every two seconds and prints entries with a
     higher `seq` than the last one it printed.*
+
+---
+
+## 14. An accessibility and phone pass
+
+We ran an outside design checker (Taste Skill's browser inspector) against the board. It is
+made for marketing websites, so most of what it reported did not apply to an app ("the hero
+must fill the first screen", "give the cards a photograph"). Seven findings were real, and
+they are worth knowing because every UI gets them wrong at first.
+
+| Problem | Why it matters | The fix |
+|---|---|---|
+| Faint grey text read at 3.2:1 | The accessibility minimum for text is **4.5:1**; below it, small text is hard to read in sunlight or with weaker eyesight | Darker `--muted`, `--faint` and status colours at the top of [index.css](../web/src/index.css) |
+| "waiting for a worker" ran past its card on a phone | Text must never leave its box | The line is cut with an ellipsis, and columns are wider on a phone |
+| The top bar was wider than a 320px screen | The whole page then scrolls sideways | The counts wrap onto their own lines |
+| Buttons and tabs were 28 to 31px tall on a phone | A thumb needs about **44px** | `min-height: 44px` on controls in the phone media query |
+| Fields were named only by placeholders | A placeholder disappears when you type, and some screen readers skip it | A small caption above each field, with the field inside its `<label>` |
+| "Add task" was disabled until you typed | A disabled button does not say what is missing | The button always works; pressing it with no title shows "Give the task a title first." in a `role="status"` line |
+| No skip link, no page description | Keyboard users had to tab through the top bar every time; shared links had no summary | A "Skip to the board" link that shows on focus, and a `<meta name="description">` |
+
+**How to check contrast yourself.** Contrast is a number from 1:1 (same colour) to 21:1 (black
+on white). Browser DevTools shows it: inspect a text element, click its colour swatch, and
+read "Contrast ratio". Because all our colours are tokens, fixing a failing colour is one line.
+
+**A testing surprise.** After the fields were wrapped in `<label>`, one browser test failed:
+`expect(option).toBeDisabled()` said the option was enabled. The app was right and the test
+was wrong. For an element inside a `<label>`, Playwright checks the label's *control* (here
+the whole menu), not the element itself. The test now reads the option's own attribute:
+`toHaveAttribute('disabled')`. When a test fails after a refactor, first ask which of the two
+changed its meaning.
 

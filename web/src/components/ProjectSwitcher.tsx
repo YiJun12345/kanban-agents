@@ -71,13 +71,16 @@ export function ProjectSwitcher({ projects, selectedId, onSelect }: Props) {
 
   return (
     <div className="project-switcher">
-      <select aria-label="Project" value={selectedId} onChange={(e) => onSelect(e.target.value)}>
-        {projects.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name} ({p.tasks.length})
-          </option>
-        ))}
-      </select>
+      <label className="field inline">
+        Project
+        <select value={selectedId} onChange={(e) => onSelect(e.target.value)}>
+          {projects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} ({p.tasks.length})
+            </option>
+          ))}
+        </select>
+      </label>
       <button className="icon-button" aria-label="New project" title="New project" onClick={() => setAdding(true)}>
         <Icon name="plus" size={16} />
       </button>

@@ -227,7 +227,7 @@ function NoteForm({ taskId }: { taskId: string }) {
 
   return (
     <form className="note-form" onSubmit={handleSubmit}>
-      <input placeholder="Add a note…" value={message} onChange={(e) => setMessage(e.target.value)} />
+      <input aria-label="Note" placeholder="Add a note…" value={message} onChange={(e) => setMessage(e.target.value)} />
       <button disabled={result.fetching || !message.trim()}>Add note</button>
     </form>
   )

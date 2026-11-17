@@ -126,6 +126,9 @@ export default function App() {
 
   return (
     <div className="app">
+      <a className="skip-link" href="#main">
+        Skip to the board
+      </a>
       <header className="topbar">
         <div className="brand">
           <span className="logo" aria-hidden>
@@ -162,7 +165,7 @@ export default function App() {
         </div>
       </header>
 
-      <main>
+      <main id="main" tabIndex={-1}>
         <div className="board-header">
           <div>
             <h1>{project.name}</h1>

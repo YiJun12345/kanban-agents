@@ -326,7 +326,9 @@ test('an outside worker takes a task with the kanban CLI', async ({ page }) => {
 test('agents that cannot run here cannot be picked', async ({ page }) => {
   await page.goto('/')
   const claude = page.getByLabel('Agent').locator('option', { hasText: 'Claude Code' })
-  await expect(claude).toBeDisabled()
+  // Read the option's own attribute: for an element inside a <label>, toBeDisabled() checks
+  // the label's control instead (here the whole menu, which is enabled)
+  await expect(claude).toHaveAttribute('disabled')
   await expect(claude).toContainText('KANBAN_ANTHROPIC_API_KEY is not set')
   await expect(page.getByLabel('Agent')).toHaveValue('FAKE')
 })
